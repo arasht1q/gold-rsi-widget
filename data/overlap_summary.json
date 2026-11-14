@@ -1,0 +1,73 @@
+{
+  "total_events": 1328,
+  "inside_daily": 351,
+  "inside_weekly": 40,
+  "inside_either": 359,
+  "inside_both": 32,
+  "outside_all": 969,
+  "pct_inside_daily": 26.430722891566266,
+  "pct_inside_weekly": 3.0120481927710845,
+  "pct_inside_either": 27.03313253012048,
+  "pct_inside_both": 2.4096385542168677,
+  "pct_outside": 72.96686746987952,
+  "total_daily_doji_zones": 85,
+  "total_weekly_doji_zones": 6,
+  "category_dist_inside": {
+    "PASS_THROUGH": 0.4428969359331476,
+    "REVERSAL": 0.3286908077994429,
+    "DIVERGENCE": 0.22841225626740946
+  },
+  "category_dist_outside": {
+    "PASS_THROUGH": 0.4674922600619195,
+    "REVERSAL": 0.32920536635706915,
+    "DIVERGENCE": 0.20330237358101136
+  },
+  "category_dist_both": {
+    "REVERSAL": 0.40625,
+    "DIVERGENCE": 0.3125,
+    "PASS_THROUGH": 0.28125
+  },
+  "count_inside": 359,
+  "count_outside": 969,
+  "count_both": 32,
+  "time_to_touch_mean_hours": 19.417168674698797,
+  "time_to_touch_median_hours": 14.5,
+  "by_level": {
+    "40": {
+      "total": 598,
+      "inside_daily": 187,
+      "inside_weekly": 30,
+      "inside_either": 195,
+      "inside_both": 22,
+      "pct_inside_either": 32.608695652173914,
+      "category_dist_inside": {
+        "PASS_THROUGH": 0.4666666666666667,
+        "REVERSAL": 0.3076923076923077,
+        "DIVERGENCE": 0.22564102564102564
+      },
+      "category_dist_outside": {
+        "PASS_THROUGH": 0.47146401985111663,
+        "REVERSAL": 0.34987593052109184,
+        "DIVERGENCE": 0.17866004962779156
+      }
+    },
+    "60": {
+      "total": 730,
+      "inside_daily": 164,
+      "inside_weekly": 10,
+      "inside_either": 164,
+      "inside_both": 10,
+      "pct_inside_either": 22.465753424657535,
+      "category_dist_inside": {
+        "PASS_THROUGH": 0.4146341463414634,
+        "REVERSAL": 0.35365853658536583,
+        "DIVERGENCE": 0.23170731707317074
+      },
+      "category_dist_outside": {
+        "PASS_THROUGH": 0.46466431095406363,
+        "REVERSAL": 0.31448763250883394,
+        "DIVERGENCE": 0.22084805653710246
+      }
+    }
+  }
+}
