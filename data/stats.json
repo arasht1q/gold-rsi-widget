@@ -1,0 +1,23 @@
+{
+  "total_events": 1328,
+  "by_category": {
+    "PASS_THROUGH": 612,
+    "REVERSAL": 437,
+    "DIVERGENCE": 279
+  },
+  "by_level_category": {
+    "DIVERGENCE": {
+      "40": 116,
+      "60": 163
+    },
+    "PASS_THROUGH": {
+      "40": 281,
+      "60": 331
+    },
+    "REVERSAL": {
+      "40": 201,
+      "60": 236
+    }
+  },
+  "by_year": {
+    
