@@ -50,32 +50,9 @@ jobs:
         working-directory: android-app
         run: npx expo prebuild --platform android --no-install
 
-      - name: Patch Compose Compiler version (downgrade to 1.5.14 for Kotlin 1.9.24 compat)
-        working-directory: android-app/android
-        run: |
-          echo "=== Patching Compose Compiler version ==="
-          
-          # The issue: Compose Compiler 1.5.15 requires Kotlin 1.9.25
-          # But Expo SDK 52 uses Kotlin 1.9.24
-          # Fix: downgrade Compose Compiler to 1.5.14 (compatible with Kotlin 1.9.24)
-          
-          # Replace 1.5.15 with 1.5.14 in ALL gradle files
-          find . -name "*.gradle" -o -name "*.gradle.kts" | while read f; do
-            if grep -q "1\.5\.15" "$f"; then
-              echo "  Patching Compose Compiler in: $f"
-              sed -i 's/1\.5\.15/1.5.14/g' "$f"
-            fi
-          done
-          
-          echo "=== Verification ==="
-          echo "--- Any 1.5.15 remaining ---"
-          grep -r "1\.5\.15" . --include="*.gradle" --include="*.gradle.kts" 2>/dev/null || echo "(none — all patched to 1.5.14!)"
-          echo "--- Compose Compiler versions now ---"
-          grep -r "kotlinCompilerExtensionVersion\|composeCompiler" . --include="*.gradle" --include="*.gradle.kts" 2>/dev/null | head -10
-
       - name: Build APK with Gradle
         working-directory: android-app/android
-        run: ./gradlew assembleRelease -x lintRelease -x lintDebug --stacktrace
+        run: ./gradlew assembleRelease
         env:
           GRADLE_OPTS: '-Dorg.gradle.jvmargs="-Xmx4096m -XX:MaxMetaspaceSize=512m"'
 

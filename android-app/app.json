@@ -16,33 +16,11 @@
       "bundleIdentifier": "com.example.goldrsiwidget"
     },
     "android": {
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#fafaf9"
-      },
-      "package": "com.example.goldrsiwidget"
+      "package": "com.example.goldrsiwidget",
+      "versionCode": 1
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    },
-    "plugins": [
-      [
-        "expo-build-properties",
-        {
-          "android": {
-            "kotlinVersion": "1.9.25",
-            "minSdkVersion": 24,
-            "targetSdkVersion": 34,
-            "compileSdkVersion": 34,
-            "buildToolsVersion": "34.0.0"
-          }
-        }
-      ]
-    ],
-    "extra": {
-      "eas": {
-        "projectId": "your-eas-project-id"
-      }
     }
   }
 }
