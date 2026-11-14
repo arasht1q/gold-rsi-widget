@@ -124,28 +124,28 @@ type ApiResponse = {
   sma200Last: number | null;
 };
 
-// Pastel palette
+// Pastel palette + dark gray bars
 const PALETTE = {
-  // Category accents (pastel)
+  // Category accents (pastel) — used for menus, badges, labels
   reversal: {
     text: '#5b8c5a',
     bgSoft: '#e8f4e8',
-    bgBar: '#a8d5a8',
+    bgBar: '#44403c',  // dark gray for the bar fill
     border: '#c3e6c3',
   },
   divergence: {
     text: '#c08a5a',
     bgSoft: '#fdf3e7',
-    bgBar: '#f5cfa0',
+    bgBar: '#44403c',  // dark gray
     border: '#f0d8b5',
   },
   passThrough: {
     text: '#b56b6b',
     bgSoft: '#fce8e8',
-    bgBar: '#f0a8a8',
+    bgBar: '#44403c',  // dark gray
     border: '#f0c8c8',
   },
-  // Level-specific
+  // Level-specific pastel accents
   level40: {
     text: '#5a7d9c',
     bgSoft: '#e8f0f8',
@@ -157,6 +157,13 @@ const PALETTE = {
     border: '#e8d5b8',
   },
 };
+
+const DARK_GRAY = '#44403c';      // stone-700 — for bars
+const DARK_GRAY_SOFT = '#a8a29e'; // stone-400 — for soft bars
+const BG_LIGHT = '#fafaf9';       // stone-50 — very light gray
+const BG_LIGHTER = '#f5f5f4';     // stone-100
+const CARD_BG = '#ffffff';
+const BORDER_LIGHT = '#e7e5e4';   // stone-200
 
 export default function Home() {
   const [data, setData] = useState<ApiResponse | null>(null);
@@ -210,7 +217,7 @@ export default function Home() {
     <div dir="rtl" className="min-h-screen text-stone-700"
          style={{
            fontFamily: 'system-ui, -apple-system, "Segoe UI", Tahoma, sans-serif',
-           background: 'linear-gradient(180deg, #f5f5f4 0%, #e7e5e4 100%)',
+           background: `linear-gradient(180deg, ${BG_LIGHT} 0%, ${BG_LIGHTER} 100%)`,
          }}>
       <div className="max-w-md mx-auto p-4 space-y-3 pb-12">
 
@@ -248,8 +255,8 @@ export default function Home() {
         {showInstall && <InstallGuide onClose={() => setShowInstall(false)} />}
 
         {/* ====== WIDGET CARD ====== */}
-        <Card className="relative overflow-hidden bg-white p-4 shadow-sm"
-              style={{ borderColor: '#e7e5e4', borderWidth: 1 }}>
+        <Card className="relative overflow-hidden p-4 shadow-sm"
+              style={{ background: CARD_BG, borderColor: BORDER_LIGHT, borderWidth: 1 }}>
           <div className="relative">
             {/* Top row: price + status pill */}
             <div className="flex items-start justify-between mb-3">
@@ -269,7 +276,7 @@ export default function Home() {
                   background: alertLevel === 'critical' ? PALETTE.passThrough.bgSoft :
                               alertLevel === 'high' ? PALETTE.divergence.bgSoft :
                               alertLevel === 'medium' ? PALETTE.level40.bgSoft :
-                              '#f5f5f4',
+                              BG_LIGHTER,
                   color: alertLevel === 'critical' ? PALETTE.passThrough.text :
                          alertLevel === 'high' ? PALETTE.divergence.text :
                          alertLevel === 'medium' ? PALETTE.level40.text :
@@ -278,7 +285,7 @@ export default function Home() {
                     alertLevel === 'critical' ? PALETTE.passThrough.border :
                     alertLevel === 'high' ? PALETTE.divergence.border :
                     alertLevel === 'medium' ? PALETTE.level40.border :
-                    '#e7e5e4'
+                    BORDER_LIGHT
                   }`,
                 }}>
                   {data?.statusFa ?? '...'}
@@ -298,9 +305,9 @@ export default function Home() {
                 <div className="flex items-center justify-between text-[9px]">
                   <Badge variant="outline" className="text-[9px] py-0 px-1.5"
                          style={{
-                           borderColor: data.marketOpen ? PALETTE.reversal.border : '#e7e5e4',
+                           borderColor: data.marketOpen ? PALETTE.reversal.border : BORDER_LIGHT,
                            color: data.marketOpen ? PALETTE.reversal.text : '#a8a29e',
-                           background: data.marketOpen ? PALETTE.reversal.bgSoft : '#f5f5f4',
+                           background: data.marketOpen ? PALETTE.reversal.bgSoft : BG_LIGHTER,
                          }}>
                     <span className={`w-1.5 h-1.5 rounded-full ml-1 ${
                       data.marketOpen ? 'animate-pulse' : ''
@@ -315,7 +322,7 @@ export default function Home() {
                 </div>
                 {data?.tvQuote && (
                   <div className="grid grid-cols-4 gap-1 text-[9px]">
-                    <div className="rounded p-1 text-center" style={{ background: '#f5f5f4' }}>
+                    <div className="rounded p-1 text-center" style={{ background: BG_LIGHTER }}>
                       <div className="text-stone-400">Open</div>
                       <div className="font-bold text-stone-700 tabular-nums">{data.tvQuote.open.toFixed(2)}</div>
                     </div>
@@ -346,7 +353,7 @@ export default function Home() {
               </div>
             )}
 
-            {/* RSI gauge */}
+            {/* RSI gauge — dark gray fill, pastel zone bands */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between text-[10px] text-stone-500">
                 <span>RSI(30)</span>
@@ -354,22 +361,21 @@ export default function Home() {
                   {data?.lastRsi?.toFixed(2) ?? '...'}
                 </span>
               </div>
-              <div className="relative h-3 rounded-full overflow-hidden" style={{ background: '#e7e5e4' }}>
-                {/* zone bands */}
+              <div className="relative h-3 rounded-full overflow-hidden" style={{ background: BG_LIGHTER }}>
+                {/* zone bands — pastel */}
                 <div className="absolute top-0 bottom-0"
-                     style={{ left: '39%', width: '2%', background: PALETTE.level40.bgBar || '#a8c8e0' }} />
+                     style={{ left: '39%', width: '2%', background: PALETTE.level40.bgSoft }} />
                 <div className="absolute top-0 bottom-0"
-                     style={{ left: '59%', width: '2%', background: PALETTE.level60.bgBar || '#e8c8a0' }} />
-                {/* fill */}
+                     style={{ left: '59%', width: '2%', background: PALETTE.level60.bgSoft }} />
+                {/* fill — dark gray */}
                 <div
                   className="h-full transition-all"
                   style={{
                     width: `${Math.min(100, Math.max(0, data?.lastRsi ?? 0))}%`,
-                    background: (data?.lastRsi ?? 50) > 60 ? PALETTE.level60.bgBar :
-                                (data?.lastRsi ?? 50) < 40 ? PALETTE.level40.bgBar :
-                                '#d6d3d1',
+                    background: DARK_GRAY,
                   }}
                 />
+                {/* markers at 40/60 */}
                 <div className="absolute top-0 bottom-0 w-px bg-stone-400" style={{ left: '40%' }} />
                 <div className="absolute top-0 bottom-0 w-px bg-stone-400" style={{ left: '60%' }} />
               </div>
@@ -382,9 +388,9 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Proximity indicator */}
+            {/* Proximity indicator — dark gray bar */}
             {data && !data.features?.inZone && data.proximity > 0.1 && (
-              <div className="mt-3 p-2 rounded-lg" style={{ background: '#f5f5f4', border: '1px solid #e7e5e4' }}>
+              <div className="mt-3 p-2 rounded-lg" style={{ background: BG_LIGHTER, border: `1px solid ${BORDER_LIGHT}` }}>
                 <div className="flex items-center justify-between text-[10px] mb-1">
                   <span className="text-stone-500 flex items-center gap-1">
                     <Target className="w-3 h-3" />
@@ -394,11 +400,14 @@ export default function Home() {
                     {data.nearestDist.toFixed(2)} واحد فاصله
                   </span>
                 </div>
-                <Progress value={data.proximity * 100} className="h-1.5" style={{ background: '#e7e5e4' }} />
+                <div className="h-1.5 rounded-full overflow-hidden" style={{ background: BORDER_LIGHT }}>
+                  <div className="h-full transition-all"
+                       style={{ width: `${data.proximity * 100}%`, background: DARK_GRAY }} />
+                </div>
               </div>
             )}
 
-            {/* In-zone info */}
+            {/* In-zone info — pastel badge */}
             {data?.features?.inZone && data.features.zoneLevel && (
               <div className="mt-3 p-2 rounded-lg"
                    style={{
@@ -419,7 +428,7 @@ export default function Home() {
 
             {/* Market closed note */}
             {data && !data.marketOpen && (
-              <div className="mt-2 p-2 rounded-lg" style={{ background: '#f5f5f4', border: '1px solid #e7e5e4' }}>
+              <div className="mt-2 p-2 rounded-lg" style={{ background: BG_LIGHTER, border: `1px solid ${BORDER_LIGHT}` }}>
                 <div className="text-[10px] text-stone-500 flex items-start gap-1.5">
                   <Clock className="w-3 h-3 mt-0.5 flex-shrink-0" />
                   <span>
@@ -454,7 +463,7 @@ export default function Home() {
         )}
 
         {/* ====== PATTERN DETECTION (M5) ====== */}
-        <Card className="bg-white p-4 shadow-sm" style={{ borderColor: '#e7e5e4', borderWidth: 1 }}>
+        <Card className="p-4 shadow-sm" style={{ background: CARD_BG, borderColor: BORDER_LIGHT, borderWidth: 1 }}>
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <div className="w-7 h-7 rounded-lg flex items-center justify-center"
@@ -469,14 +478,14 @@ export default function Home() {
             <Badge style={{
               background: data?.pattern?.bias === 'bullish' ? PALETTE.reversal.bgSoft :
                           data?.pattern?.bias === 'bearish' ? PALETTE.passThrough.bgSoft :
-                          '#f5f5f4',
+                          BG_LIGHTER,
               color: data?.pattern?.bias === 'bullish' ? PALETTE.reversal.text :
                      data?.pattern?.bias === 'bearish' ? PALETTE.passThrough.text :
                      '#78716c',
               border: `1px solid ${
                 data?.pattern?.bias === 'bullish' ? PALETTE.reversal.border :
                 data?.pattern?.bias === 'bearish' ? PALETTE.passThrough.border :
-                '#e7e5e4'
+                BORDER_LIGHT
               }`,
             }}>
               {data?.pattern?.labelFa ?? '...'}
@@ -502,7 +511,8 @@ export default function Home() {
                       style={{
                         bottom: `${100 - bodyTop}%`,
                         height: `${Math.max(2, bodyTop - bodyBot)}%`,
-                        background: c.isUp ? PALETTE.reversal.bgBar : PALETTE.passThrough.bgBar,
+                        // candle body — dark gray for both up/down (just different opacities)
+                        background: c.isUp ? DARK_GRAY : DARK_GRAY_SOFT,
                       }}
                     />
                   </div>
@@ -522,14 +532,16 @@ export default function Home() {
         {data?.ticket && (
           <Card className="p-4 shadow-sm"
                 style={{
-                  borderColor: data.ticket.valid ? PALETTE.reversal.border : '#e7e5e4',
+                  borderColor: data.ticket.valid ? PALETTE.reversal.border : BORDER_LIGHT,
                   borderWidth: 1,
-                  background: data.ticket.valid ? `linear-gradient(180deg, ${PALETTE.reversal.bgSoft} 0%, #ffffff 60%)` : '#ffffff',
+                  background: data.ticket.valid
+                    ? `linear-gradient(180deg, ${PALETTE.reversal.bgSoft} 0%, ${CARD_BG} 60%)`
+                    : CARD_BG,
                 }}>
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <div className="w-7 h-7 rounded-lg flex items-center justify-center"
-                     style={{ background: data.ticket.valid ? PALETTE.reversal.bgSoft : '#f5f5f4' }}>
+                     style={{ background: data.ticket.valid ? PALETTE.reversal.bgSoft : BG_LIGHTER }}>
                   <Target className="w-4 h-4"
                           style={{ color: data.ticket.valid ? PALETTE.reversal.text : '#a8a29e' }} />
                 </div>
@@ -576,18 +588,19 @@ export default function Home() {
                   </span>
                 </div>
 
-                <div className="h-1.5 rounded-full overflow-hidden mb-3" style={{ background: '#e7e5e4' }}>
+                {/* Confidence bar — dark gray */}
+                <div className="h-1.5 rounded-full overflow-hidden mb-3" style={{ background: BORDER_LIGHT }}>
                   <div className="h-full transition-all"
                        style={{
                          width: `${data.ticket.confidence * 100}%`,
-                         background: `linear-gradient(90deg, ${PALETTE.divergence.bgBar}, ${PALETTE.reversal.bgBar})`,
+                         background: DARK_GRAY,
                        }}
                   />
                 </div>
               </>
             ) : (
               <div className="flex items-start gap-2 p-2 rounded-lg text-xs text-stone-600"
-                   style={{ background: '#f5f5f4' }}>
+                   style={{ background: BG_LIGHTER }}>
                 <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5"
                                style={{ color: PALETTE.divergence.text }} />
                 <div>{data.ticket.notes[0]}</div>
@@ -621,7 +634,7 @@ export default function Home() {
         {expanded && data && (
           <div className="space-y-3">
             {data.features && (
-              <Card className="bg-white p-4 shadow-sm" style={{ borderColor: '#e7e5e4', borderWidth: 1 }}>
+              <Card className="p-4 shadow-sm" style={{ background: CARD_BG, borderColor: BORDER_LIGHT, borderWidth: 1 }}>
                 <div className="text-sm font-bold mb-3 text-stone-800">ویژگی‌های فعلی بازار</div>
                 <div className="grid grid-cols-2 gap-3 text-xs">
                   <FeatureItem label="RSI" value={data.features.rsi.toFixed(2)} />
@@ -636,29 +649,24 @@ export default function Home() {
               </Card>
             )}
 
-            <Card className="bg-white p-4 shadow-sm" style={{ borderColor: '#e7e5e4', borderWidth: 1 }}>
+            <Card className="p-4 shadow-sm" style={{ background: CARD_BG, borderColor: BORDER_LIGHT, borderWidth: 1 }}>
               <div className="text-sm font-bold mb-3 text-stone-800">نمودار قیمت و RSI (۲۴ ساعت اخیر)</div>
               <MiniChart candles={data.recentCandles} />
             </Card>
 
-            <Card className="bg-white p-4 shadow-sm" style={{ borderColor: '#e7e5e4', borderWidth: 1 }}>
+            <Card className="p-4 shadow-sm" style={{ background: CARD_BG, borderColor: BORDER_LIGHT, borderWidth: 1 }}>
               <div className="text-sm font-bold mb-2 text-stone-800">درباره این ویجت</div>
               <div className="text-[11px] text-stone-600 leading-relaxed space-y-2">
-                <p>
-                  این ویجت RSI(30) را روی تایم‌فریم M30 طلا پایش می‌کند. منابع داده:
-                </p>
+                <p>این ویجت RSI(30) را روی تایم‌فریم M30 طلا پایش می‌کند. منابع داده:</p>
                 <ul className="space-y-1 list-disc pr-4">
                   <li><strong className="text-stone-800">قیمت لحظه‌ای:</strong> TradingView TVC:GOLD (طلای اسپات)</li>
                   <li><strong className="text-stone-800">کندل‌های تاریخی M30:</strong> Yahoo Finance GC=F (طلای آتی COMEX)</li>
                   <li><strong className="text-stone-800">Fallback:</strong> Binance PAXG/USDT</li>
                 </ul>
-                <p>
-                  بازار طلای اسپات از یکشنبه ۲۳:۰۰ تا جمعه ۲۲:۰۰ UTC باز است و در شنبه تعطیل است.
-                </p>
+                <p>بازار طلای اسپات از یکشنبه ۲۳:۰۰ تا جمعه ۲۲:۰۰ UTC باز است و در شنبه تعطیل است.</p>
                 <p>
                   <strong className="text-stone-800">پیش‌بینی‌ها:</strong> همیشه برای هر دو سطح ۴۰ و ۶۰ نشان داده می‌شوند.
-                  اگر RSI داخل زون باشد، پیش‌بینی واقعی است؛ در غیر این صورت، پیش‌بینی فرضی است
-                  (اگر الان به سطح برسد چه می‌شود).
+                  اگر RSI داخل زون باشد، پیش‌بینی واقعی است؛ در غیر این صورت، پیش‌بینی فرضی است.
                 </p>
               </div>
             </Card>
@@ -666,7 +674,8 @@ export default function Home() {
         )}
 
         {error && (
-          <Card className="p-3 shadow-sm" style={{ borderColor: PALETTE.passThrough.border, background: PALETTE.passThrough.bgSoft }}>
+          <Card className="p-3 shadow-sm"
+                style={{ borderColor: PALETTE.passThrough.border, background: PALETTE.passThrough.bgSoft }}>
             <div className="text-xs flex items-center gap-2" style={{ color: PALETTE.passThrough.text }}>
               <AlertTriangle className="w-4 h-4" />
               {error}
@@ -675,7 +684,7 @@ export default function Home() {
         )}
 
         <div className="text-center text-[10px] text-stone-400 pt-4">
-          داده زنده از Binance · به‌روزرسانی هر ۳۰ ثانیه<br/>
+          داده زنده · به‌روزرسانی هر ۳۰ ثانیه<br/>
           این ابزار سیگنال معاملاتی قطعی نیست — با مدیریت ریسک معامله کنید
         </div>
       </div>
@@ -697,11 +706,11 @@ function PredictionCard({ level, prediction, isActual, palette } : {
           style={{
             borderColor: palette.border,
             borderWidth: 1,
-            background: `linear-gradient(180deg, ${palette.bgSoft} 0%, #ffffff 70%)`,
+            background: `linear-gradient(180deg, ${palette.bgSoft} 0%, ${CARD_BG} 80%)`,
           }}>
       <div className="flex items-center gap-2 mb-3">
         <div className="w-7 h-7 rounded-lg flex items-center justify-center"
-             style={{ background: palette.bgSoft }}>
+             style={{ background: palette.bgSoft, border: `1px solid ${palette.border}` }}>
           <Zap className="w-4 h-4" style={{ color: palette.text }} />
         </div>
         <div className="flex-1">
@@ -717,7 +726,7 @@ function PredictionCard({ level, prediction, isActual, palette } : {
           </div>
         </div>
         <Badge variant="outline" className="text-[10px]"
-               style={{ borderColor: palette.border, color: palette.text }}>
+               style={{ borderColor: palette.border, color: palette.text, background: palette.bgSoft }}>
           محتمل: {prediction.topFa}
         </Badge>
       </div>
@@ -746,7 +755,7 @@ function PredictionCard({ level, prediction, isActual, palette } : {
                  icon={<TrendingDown className="w-3 h-3" />} />
       </div>
 
-      <Separator className="my-3" style={{ background: '#e7e5e4' }} />
+      <Separator className="my-3" style={{ background: BORDER_LIGHT }} />
 
       <div className="space-y-1">
         <div className="text-[10px] font-bold text-stone-500 mb-1">دلایل پیش‌بینی:</div>
@@ -760,7 +769,7 @@ function PredictionCard({ level, prediction, isActual, palette } : {
 
       {!isActual && (
         <div className="mt-3 p-2 rounded text-[10px] flex items-start gap-1.5"
-             style={{ background: palette.bgSoft, color: palette.text }}>
+             style={{ background: palette.bgSoft, color: palette.text, border: `1px solid ${palette.border}` }}>
           <AlertTriangle className="w-3 h-3 mt-0.5 flex-shrink-0" />
           <span>
             این پیش‌بینی فرضی است و فرض می‌کند RSI همین الان به سطح می‌رسد. وقتی واقعاً به سطح برسد
@@ -786,8 +795,9 @@ function ProbBar({ label, value, palette, icon }: {
         </span>
         <span className="font-bold text-stone-800 tabular-nums">{(value * 100).toFixed(0)}٪</span>
       </div>
-      <div className="h-2 rounded-full overflow-hidden" style={{ background: '#e7e5e4' }}>
-        <div className="h-full transition-all" style={{ width: `${value * 100}%`, background: palette.bgBar }} />
+      {/* Bar background = light gray, fill = dark gray */}
+      <div className="h-2 rounded-full overflow-hidden" style={{ background: BORDER_LIGHT }}>
+        <div className="h-full transition-all" style={{ width: `${value * 100}%`, background: DARK_GRAY }} />
       </div>
     </div>
   );
@@ -800,8 +810,8 @@ function TicketBox({ label, value, tone }: {
   return (
     <div className="p-2 rounded-lg"
          style={{
-           background: palette ? palette.bgSoft : '#f5f5f4',
-           border: `1px solid ${palette ? palette.border : '#e7e5e4'}`,
+           background: palette ? palette.bgSoft : BG_LIGHTER,
+           border: `1px solid ${palette ? palette.border : BORDER_LIGHT}`,
          }}>
       <div className="text-[9px] text-stone-500 mb-0.5">{label}</div>
       <div className="text-xs font-bold tabular-nums"
@@ -812,7 +822,7 @@ function TicketBox({ label, value, tone }: {
 
 function FeatureItem({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between p-2 rounded" style={{ background: '#f5f5f4' }}>
+    <div className="flex items-center justify-between p-2 rounded" style={{ background: BG_LIGHTER }}>
       <span className="text-stone-500">{label}</span>
       <span className="font-bold text-stone-800 tabular-nums">{value}</span>
     </div>
@@ -848,17 +858,20 @@ function MiniChart({ candles }: { candles: any[] }) {
   return (
     <div className="space-y-1">
       <svg viewBox={`0 0 ${w} ${hPrice + hRsi + 10}`} className="w-full" preserveAspectRatio="none">
-        <path d={pricePath} stroke={PALETTE.level60.text} strokeWidth="1.5" fill="none" />
+        {/* Price line — dark gray */}
+        <path d={pricePath} stroke={DARK_GRAY} strokeWidth="1.5" fill="none" />
         <g transform={`translate(0, ${hPrice + 10})`}>
+          {/* Zone bands — pastel */}
           <rect x="0" y={hRsi - (60 / 100) * hRsi} width={w} height={(2 / 100) * hRsi}
-                fill={PALETTE.level60.bgBar} opacity="0.4" />
+                fill={PALETTE.level60.bgSoft} opacity="0.6" />
           <rect x="0" y={hRsi - (40 / 100) * hRsi} width={w} height={(2 / 100) * hRsi}
-                fill={PALETTE.level40.bgBar} opacity="0.4" />
+                fill={PALETTE.level40.bgSoft} opacity="0.6" />
           <line x1="0" y1={hRsi - (60 / 100) * hRsi} x2={w} y2={hRsi - (60 / 100) * hRsi}
                 stroke={PALETTE.level60.text} strokeWidth="0.3" strokeDasharray="2,2" opacity="0.5" />
           <line x1="0" y1={hRsi - (40 / 100) * hRsi} x2={w} y2={hRsi - (40 / 100) * hRsi}
                 stroke={PALETTE.level40.text} strokeWidth="0.3" strokeDasharray="2,2" opacity="0.5" />
-          {rsiPath && <path d={rsiPath} stroke={PALETTE.level40.text} strokeWidth="1.2" fill="none" />}
+          {/* RSI line — dark gray */}
+          {rsiPath && <path d={rsiPath} stroke={DARK_GRAY_SOFT} strokeWidth="1.2" fill="none" />}
         </g>
       </svg>
       <div className="flex justify-between text-[9px] text-stone-400">
