@@ -50,9 +50,23 @@ jobs:
         working-directory: android-app
         run: npx expo prebuild --platform android --no-install
 
+      - name: Patch Kotlin version compatibility
+        working-directory: android-app/android
+        run: |
+          # Add suppressKotlinVersionCompatibilityCheck to composeOptions in app/build.gradle
+          # This resolves the Compose Compiler 1.5.15 / Kotlin 1.9.24 incompatibility
+          sed -i '/composeOptions {/a\        suppressKotlinVersionCompatibilityCheck = true' app/build.gradle || true
+          
+          # Also patch the root build.gradle to use Kotlin 1.9.25
+          sed -i 's/kotlinVersion = "1.9.24"/kotlinVersion = "1.9.25"/g' build.gradle || true
+          sed -i 's/"org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.24"/"org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.25"/g' build.gradle || true
+          
+          echo "=== Patched build.gradle files ==="
+          grep -n "suppressKotlinVersion\|kotlinVersion\|kotlin-gradle-plugin" app/build.gradle build.gradle 2>/dev/null || echo "(no matches found)"
+
       - name: Build APK with Gradle
         working-directory: android-app/android
-        run: ./gradlew assembleRelease -x lintRelease -x lintDebug
+        run: ./gradlew assembleRelease -x lintRelease -x lintDebug --stacktrace
         env:
           GRADLE_OPTS: '-Dorg.gradle.jvmargs="-Xmx4096m -XX:MaxMetaspaceSize=512m"'
 
