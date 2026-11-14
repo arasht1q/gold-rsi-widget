@@ -128,6 +128,35 @@ type ApiResponse = {
     } | null;
     nearestDistance: number | null;
     nearestDirection: 'above' | 'below' | 'inside' | null;
+    nearestAbove: {
+      type: 'daily' | 'weekly';
+      date: string;
+      open: number;
+      close: number;
+      midpoint: number;
+      rangeHigh: number;
+      rangeLow: number;
+    } | null;
+    nearestBelow: {
+      type: 'daily' | 'weekly';
+      date: string;
+      open: number;
+      close: number;
+      midpoint: number;
+      rangeHigh: number;
+      rangeLow: number;
+    } | null;
+    nextTarget: {
+      type: 'daily' | 'weekly';
+      date: string;
+      open: number;
+      close: number;
+      midpoint: number;
+      rangeHigh: number;
+      rangeLow: number;
+    } | null;
+    nextTargetDistance: number | null;
+    nextTargetDirection: 'up' | 'down' | 'flat' | null;
     currentPrice: number;
   } | null;
   prevDay: {
@@ -682,174 +711,186 @@ export default function Home() {
         )}
 
         {/* ====== IMPORTANT ZONES (Doji-based) ====== */}
-        {data?.importantZones && data.importantZones.zones.length > 0 && (
-          <Card className="p-4 shadow-sm"
-                style={{
-                  borderColor: data.importantZones.insideZones.length > 0
-                    ? PALETTE.divergence.border
-                    : BORDER_LIGHT,
-                  borderWidth: 1,
-                  background: data.importantZones.insideZones.length > 0
-                    ? `linear-gradient(180deg, ${PALETTE.divergence.bgSoft} 0%, ${CARD_BG} 70%)`
-                    : CARD_BG,
-                }}>
-            <div className="flex items-center gap-2 mb-3">
-              <div className="w-7 h-7 rounded-lg flex items-center justify-center"
-                   style={{
-                     background: data.importantZones.insideZones.length > 0
-                       ? PALETTE.divergence.bgSoft
-                       : PALETTE.level60.bgSoft,
-                     border: `1px solid ${
-                       data.importantZones.insideZones.length > 0
-                         ? PALETTE.divergence.border
-                         : PALETTE.level60.border
-                     }`,
-                   }}>
-                <Target className="w-4 h-4"
-                        style={{
-                          color: data.importantZones.insideZones.length > 0
-                            ? PALETTE.divergence.text
-                            : PALETTE.level60.text,
-                        }} />
-              </div>
-              <div className="flex-1">
-                <div className="text-sm font-bold text-stone-800">زون‌های مهم (دوجی)</div>
-                <div className="text-[10px] text-stone-500">
-                  از کندل‌های دوجی روزانه و هفتگی — سطوح Open/Close به‌عنوان زون
-                </div>
-              </div>
-            </div>
+        {data?.importantZones && data.importantZones.zones.length > 0 && (() => {
+          const iz = data.importantZones;
+          const insideCount = iz.insideZones.length;
+          // Group zones: near (<= 2%) and far (> 2%)
+          const NEAR_THRESHOLD = 2.0;
+          const nearZones = iz.zones.filter(z => {
+            const distPct = (Math.abs(z.midpoint - iz.currentPrice) / iz.currentPrice) * 100;
+            return distPct <= NEAR_THRESHOLD && !iz.insideZones.some(i => i.date === z.date && i.type === z.type);
+          });
+          const farZones = iz.zones.filter(z => {
+            const distPct = (Math.abs(z.midpoint - iz.currentPrice) / iz.currentPrice) * 100;
+            return distPct > NEAR_THRESHOLD && !iz.insideZones.some(i => i.date === z.date && i.type === z.type);
+          });
 
-            {/* Inside zone alert */}
-            {data.importantZones.insideZones.length > 0 ? (
-              <div className="mb-3 p-2.5 rounded-lg"
-                   style={{
-                     background: PALETTE.divergence.bgSoft,
-                     border: `1px solid ${PALETTE.divergence.border}`,
-                   }}>
-                <div className="flex items-center gap-1.5 mb-1">
-                  <Bell className="w-3.5 h-3.5" style={{ color: PALETTE.divergence.text }} />
-                  <span className="font-bold text-xs" style={{ color: PALETTE.divergence.text }}>
-                    داخل زون مهم هستیم!
-                  </span>
+          return (
+            <Card className="p-4 shadow-sm"
+                  style={{
+                    borderColor: insideCount > 0 ? PALETTE.divergence.border : BORDER_LIGHT,
+                    borderWidth: 1,
+                    background: insideCount > 0
+                      ? `linear-gradient(180deg, ${PALETTE.divergence.bgSoft} 0%, ${CARD_BG} 70%)`
+                      : CARD_BG,
+                  }}>
+              {/* Header */}
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-7 h-7 rounded-lg flex items-center justify-center"
+                     style={{
+                       background: insideCount > 0 ? PALETTE.divergence.bgSoft : PALETTE.level60.bgSoft,
+                       border: `1px solid ${insideCount > 0 ? PALETTE.divergence.border : PALETTE.level60.border}`,
+                     }}>
+                  <Target className="w-4 h-4"
+                          style={{ color: insideCount > 0 ? PALETTE.divergence.text : PALETTE.level60.text }} />
                 </div>
-                {data.importantZones.insideZones.map((z, i) => (
-                  <div key={i} className="text-[10px] text-stone-700 mb-1">
-                    <Badge variant="outline" className="text-[9px] py-0 px-1 ml-1"
-                           style={{
-                             borderColor: z.type === 'weekly' ? PALETTE.level60.border : PALETTE.level40.border,
-                             color: z.type === 'weekly' ? PALETTE.level60.text : PALETTE.level40.text,
-                           }}>
-                      {z.type === 'weekly' ? 'هفتگی' : 'روزانه'}
-                    </Badge>
-                    تاریخ: {new Date(z.date + 'T00:00:00Z').toLocaleDateString('fa-IR', { timeZone: 'UTC' })}
-                    {' '}— زون: ${z.rangeLow.toFixed(2)} تا ${z.rangeHigh.toFixed(2)}
-                  </div>
-                ))}
+                <div className="flex-1">
+                  <div className="text-sm font-bold text-stone-800">زون‌های مهم (دوجی)</div>
+                  <div className="text-[10px] text-stone-500">روزانه و هفتگی — Open/Close به‌عنوان زون</div>
+                </div>
               </div>
-            ) : data.importantZones.nearestZone ? (
-              <div className="mb-3 p-2.5 rounded-lg"
-                   style={{
-                     background: PALETTE.level60.bgSoft,
-                     border: `1px solid ${PALETTE.level60.border}`,
-                   }}>
-                <div className="text-[10px] font-bold mb-1" style={{ color: PALETTE.level60.text }}>
-                  نزدیک‌ترین زون مهم:
-                </div>
-                <div className="flex items-center justify-between text-[11px]">
-                  <div>
-                    <Badge variant="outline" className="text-[9px] py-0 px-1 ml-1"
-                           style={{
-                             borderColor: data.importantZones.nearestZone.type === 'weekly'
-                               ? PALETTE.level60.border : PALETTE.level40.border,
-                             color: data.importantZones.nearestZone.type === 'weekly'
-                               ? PALETTE.level60.text : PALETTE.level40.text,
-                           }}>
-                      {data.importantZones.nearestZone.type === 'weekly' ? 'هفتگی' : 'روزانه'}
-                    </Badge>
-                    <span className="text-stone-700 mr-1">
-                      {new Date(data.importantZones.nearestZone.date + 'T00:00:00Z').toLocaleDateString('fa-IR', { timeZone: 'UTC' })}
-                    </span>
-                  </div>
-                  <div className="font-bold tabular-nums text-stone-800">
-                    ${data.importantZones.nearestZone.midpoint.toFixed(2)}
-                  </div>
-                </div>
-                {data.importantZones.nearestDistance !== null && (
-                  <div className="mt-2 flex items-center justify-between text-[10px]">
-                    <span className="text-stone-600">
-                      فاصله قیمت لایو تا این زون:
-                    </span>
-                    <span className="font-bold" style={{ color: PALETTE.divergence.text }}>
-                      {data.importantZones.nearestDistance.toFixed(2)}٪
-                      {' '}
-                      ({data.importantZones.nearestDirection === 'above' ? 'بالای قیمت' : 'پایین قیمت'})
-                    </span>
-                  </div>
-                )}
-                {/* Mini proximity bar */}
-                {data.importantZones.nearestDistance !== null && (
-                  <div className="mt-1.5 h-1.5 rounded-full overflow-hidden" style={{ background: BORDER_LIGHT }}>
-                    <div className="h-full"
-                         style={{
-                           width: `${Math.min(100, data.importantZones.nearestDistance * 5)}%`,
-                           background: PALETTE.divergence.bgBar,
-                         }} />
-                  </div>
-                )}
-              </div>
-            ) : null}
 
-            {/* List of zones */}
-            <div className="space-y-1">
-              <div className="text-[10px] font-bold text-stone-500 mb-1">زون‌های مهم نزدیک قیمت فعلی:</div>
-              {data.importantZones.zones.map((z, i) => {
-                const isInside = data.importantZones.insideZones.some(iz => iz.date === z.date && iz.type === z.type);
-                const distPct = (Math.abs(z.midpoint - data.importantZones.currentPrice) / data.importantZones.currentPrice) * 100;
-                const isAbove = z.midpoint > data.importantZones.currentPrice;
-                return (
-                  <div key={i} className="rounded p-1.5"
-                       style={{
-                         background: isInside ? PALETTE.divergence.bgSoft : BG_LIGHTER,
-                         border: `1px solid ${isInside ? PALETTE.divergence.border : BORDER_LIGHT}`,
-                       }}>
-                    <div className="flex items-center justify-between text-[10px]">
-                      <div className="flex items-center gap-1">
-                        <Badge variant="outline" className="text-[8px] py-0 px-1"
-                               style={{
-                                 borderColor: z.type === 'weekly' ? PALETTE.level60.border : PALETTE.level40.border,
-                                 color: z.type === 'weekly' ? PALETTE.level60.text : PALETTE.level40.text,
-                               }}>
-                          {z.type === 'weekly' ? 'هفتگی' : 'روزانه'}
-                        </Badge>
-                        <span className="text-stone-500">
-                          {new Date(z.date + 'T00:00:00Z').toLocaleDateString('fa-IR', {
-                            month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC',
-                          })}
-                        </span>
+              {/* Legend */}
+              <div className="flex items-center gap-3 mb-3 text-[9px]">
+                <div className="flex items-center gap-1">
+                  <span className="w-2.5 h-2.5 rounded" style={{ background: '#f5b87a' }} />
+                  <span className="text-stone-600">هفتگی</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="w-2.5 h-2.5 rounded" style={{ background: '#c8c8c8' }} />
+                  <span className="text-stone-600">روزانه</span>
+                </div>
+                <div className="flex items-center gap-1 mr-auto">
+                  <span className="text-stone-400">۱ pip = $۰.۱۰</span>
+                </div>
+              </div>
+
+              {/* Inside zone alert */}
+              {insideCount > 0 && (
+                <div className="mb-3 p-2.5 rounded-lg"
+                     style={{
+                       background: PALETTE.divergence.bgSoft,
+                       border: `1px solid ${PALETTE.divergence.border}`,
+                     }}>
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <Bell className="w-3.5 h-3.5 animate-pulse" style={{ color: PALETTE.divergence.text }} />
+                    <span className="font-bold text-xs" style={{ color: PALETTE.divergence.text }}>
+                      داخل زون مهم هستیم!
+                    </span>
+                  </div>
+                  {iz.insideZones.map((z, i) => {
+                    const isWeekly = z.type === 'weekly';
+                    return (
+                      <div key={i} className="text-[10px] text-stone-700 mb-1 flex items-center gap-1">
+                        <span className="w-2 h-2 rounded" style={{ background: isWeekly ? '#f5b87a' : '#c8c8c8' }} />
+                        <span className="text-stone-600">{isWeekly ? 'هفتگی' : 'روزانه'}</span>
+                        <span>{new Date(z.date + 'T00:00:00Z').toLocaleDateString('fa-IR', { timeZone: 'UTC' })}</span>
+                        <span className="font-bold tabular-nums mr-auto">${z.midpoint.toFixed(2)}</span>
                       </div>
-                      <div className="font-bold tabular-nums text-stone-800">
-                        ${z.midpoint.toFixed(2)}
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between text-[9px] mt-0.5">
-                      <span className="text-stone-400">
-                        زون: ${z.rangeLow.toFixed(2)} - ${z.rangeHigh.toFixed(2)}
-                      </span>
-                      <span className="font-bold"
-                            style={{
-                              color: isInside ? PALETTE.divergence.text
-                                     : isAbove ? PALETTE.reversal.text : PALETTE.passThrough.text,
-                            }}>
-                        {isInside ? '✓ داخل زون' : `${distPct.toFixed(2)}٪ ${isAbove ? '↑ بالا' : '↓ پایین'}`}
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Next target (in direction of movement) */}
+              {iz.nextTarget && (
+                <div className="mb-3 p-2.5 rounded-lg"
+                     style={{
+                       background: iz.nextTargetDirection === 'up' ? PALETTE.reversal.bgSoft : PALETTE.passThrough.bgSoft,
+                       border: `1px solid ${
+                         iz.nextTargetDirection === 'up' ? PALETTE.reversal.border : PALETTE.passThrough.border
+                       }`,
+                     }}>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] font-bold" style={{
+                      color: iz.nextTargetDirection === 'up' ? PALETTE.reversal.text : PALETTE.passThrough.text,
+                    }}>
+                      زون هدف ({iz.nextTargetDirection === 'up' ? '↑ صعودی' : '↓ نزولی'}):
+                    </span>
+                    <span className="w-2 h-2 rounded"
+                          style={{ background: iz.nextTarget.type === 'weekly' ? '#f5b87a' : '#c8c8c8' }} />
+                  </div>
+                  <div className="flex items-center justify-between text-[11px]">
+                    <div>
+                      <span className="text-stone-600">{iz.nextTarget.type === 'weekly' ? 'هفتگی' : 'روزانه'}</span>
+                      <span className="text-stone-400 mr-1">
+                        {new Date(iz.nextTarget.date + 'T00:00:00Z').toLocaleDateString('fa-IR', {
+                          month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC',
+                        })}
                       </span>
                     </div>
+                    <div className="font-bold tabular-nums text-stone-800">
+                      ${iz.nextTarget.midpoint.toFixed(2)}
+                    </div>
                   </div>
-                );
-              })}
-            </div>
-          </Card>
-        )}
+                  {/* Distance in 3 formats */}
+                  <div className="grid grid-cols-3 gap-1 mt-2 text-[9px]">
+                    {(() => {
+                      const diff = Math.abs(iz.nextTarget.midpoint - iz.currentPrice);
+                      const pips = diff * 10;
+                      const points = diff;
+                      const pct = iz.nextTargetDistance ?? 0;
+                      return (
+                        <>
+                          <div className="rounded p-1 text-center" style={{ background: CARD_BG }}>
+                            <div className="text-stone-400">پوینت</div>
+                            <div className="font-bold tabular-nums text-stone-700">{points.toFixed(1)}</div>
+                          </div>
+                          <div className="rounded p-1 text-center" style={{ background: CARD_BG }}>
+                            <div className="text-stone-400">پip</div>
+                            <div className="font-bold tabular-nums text-stone-700">{pips.toFixed(0)}</div>
+                          </div>
+                          <div className="rounded p-1 text-center" style={{ background: CARD_BG }}>
+                            <div className="text-stone-400">٪</div>
+                            <div className="font-bold tabular-nums" style={{
+                              color: iz.nextTargetDirection === 'up' ? PALETTE.reversal.text : PALETTE.passThrough.text,
+                            }}>{pct.toFixed(2)}٪</div>
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </div>
+                </div>
+              )}
+
+              {/* Near zones group */}
+              {nearZones.length > 0 && (
+                <div className="mb-3">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <div className="text-[10px] font-bold text-stone-700 flex items-center gap-1">
+                      <span className="w-1 h-3 rounded" style={{ background: PALETTE.divergence.text }} />
+                      زون‌های نزدیک (≤ ۲٪)
+                    </div>
+                    <span className="text-[9px] text-stone-400">{nearZones.length} زون</span>
+                  </div>
+                  <div className="space-y-1">
+                    {nearZones.map((z, i) => (
+                      <ZoneRow key={`n-${i}`} z={z} iz={iz} />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Far zones group */}
+              {farZones.length > 0 && (
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <div className="text-[10px] font-bold text-stone-500 flex items-center gap-1">
+                      <span className="w-1 h-3 rounded bg-stone-300" />
+                      زون‌های بعدی ({'>'} ۲٪)
+                    </div>
+                    <span className="text-[9px] text-stone-400">{farZones.length} زون</span>
+                  </div>
+                  <div className="space-y-1">
+                    {farZones.map((z, i) => (
+                      <ZoneRow key={`f-${i}`} z={z} iz={iz} />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </Card>
+          );
+        })()}
 
         {/* ====== PREVIOUS DAY ANALYSIS ====== */}
         {data?.prevDay && (
@@ -1060,27 +1101,42 @@ export default function Home() {
           </div>
 
           {data?.recentM5 && data.recentM5.length > 0 && (
-            <div className="flex items-end gap-1 h-20 mb-2">
+            <div className="flex items-end gap-1.5 h-24 mb-2 px-1">
               {data.recentM5.map((c, i) => {
                 const all = data.recentM5!;
                 const max = Math.max(...all.map(x => x.high));
                 const min = Math.min(...all.map(x => x.low));
                 const range = max - min || 1;
-                const h = ((c.high - c.low) / range) * 100;
-                const bodyTop = ((Math.max(c.open, c.close) - min) / range) * 100;
-                const bodyBot = ((Math.min(c.open, c.close) - min) / range) * 100;
+                const color = c.isUp ? '#26a69a' : '#ef5350';
+
+                // Wick spans from low to high
+                const wickBottomPct = ((c.low - min) / range) * 100;
+                const wickHeightPct = ((c.high - c.low) / range) * 100;
+
+                // Body spans from min(open,close) to max(open,close)
+                const bodyBottomPct = ((Math.min(c.open, c.close) - min) / range) * 100;
+                const bodyHeightPct = (Math.abs(c.close - c.open) / range) * 100;
+
                 return (
                   <div key={i} className="flex-1 relative" style={{ height: '100%' }}>
-                    <div className="absolute left-1/2 -translate-x-1/2 w-px bg-stone-300"
-                         style={{ bottom: `${100 - bodyTop - (bodyTop - bodyBot) - ((c.high - Math.max(c.open, c.close)) / range) * 100}%`, height: `${h}%` }} />
+                    {/* Wick (thin vertical line, full high-low range) */}
+                    <div className="absolute left-1/2 -translate-x-1/2"
+                         style={{
+                           bottom: `${wickBottomPct}%`,
+                           height: `${wickHeightPct}%`,
+                           width: '1.5px',
+                           background: color,
+                           opacity: 0.6,
+                         }} />
+                    {/* Body (rectangle) */}
                     <div
-                      className="absolute left-1/2 -translate-x-1/2 w-3 rounded-sm"
+                      className="absolute left-1/2 -translate-x-1/2 rounded-sm"
                       style={{
-                        bottom: `${100 - bodyTop}%`,
-                        height: `${Math.max(2, bodyTop - bodyBot)}%`,
-                        // Standard green/red candle colors
-                        background: c.isUp ? '#26a69a' : '#ef5350',  // teal/green up, red down
-                        boxShadow: c.isUp ? '0 0 2px rgba(38, 166, 154, 0.3)' : '0 0 2px rgba(239, 83, 80, 0.3)',
+                        bottom: `${bodyBottomPct}%`,
+                        height: `${Math.max(3, bodyHeightPct)}%`,
+                        width: '12px',
+                        background: color,
+                        boxShadow: `0 0 3px ${color}40`,
                       }}
                     />
                   </div>
@@ -1254,6 +1310,88 @@ export default function Home() {
         <div className="text-center text-[10px] text-stone-400 pt-4">
           داده زنده · به‌روزرسانی هر ۳۰ ثانیه<br/>
           این ابزار سیگنال معاملاتی قطعی نیست — با مدیریت ریسک معامله کنید
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// =====================================================
+// Zone Row component — used for each zone in near/far groups
+// =====================================================
+function ZoneRow({ z, iz }: {
+  z: {
+    type: 'daily' | 'weekly';
+    date: string;
+    open: number;
+    close: number;
+    midpoint: number;
+    rangeHigh: number;
+    rangeLow: number;
+  };
+  iz: {
+    currentPrice: number;
+    insideZones: { date: string; type: string; midpoint: number }[];
+  };
+}) {
+  const isWeekly = z.type === 'weekly';
+  const zoneColor = isWeekly ? '#f5b87a' : '#c8c8c8';  // orange for weekly, gray for daily
+  const zoneBg = isWeekly ? '#fef3e7' : '#f5f5f4';
+  const zoneBorder = isWeekly ? '#f0d8b5' : '#e0e0e0';
+
+  const diff = Math.abs(z.midpoint - iz.currentPrice);
+  const pips = diff * 10;
+  const points = diff;
+  const distPct = (diff / iz.currentPrice) * 100;
+  const isAbove = z.midpoint > iz.currentPrice;
+  const isInside = iz.insideZones.some(i => i.date === z.date && i.type === z.type);
+
+  return (
+    <div className="rounded p-1.5 flex items-center gap-2"
+         style={{
+           background: zoneBg,
+           border: `1px solid ${zoneBorder}`,
+           borderRight: `3px solid ${zoneColor}`,
+         }}>
+      {/* Type indicator */}
+      <div className="flex flex-col items-center" style={{ minWidth: '32px' }}>
+        <span className="w-2 h-2 rounded-full" style={{ background: zoneColor }} />
+        <span className="text-[8px] text-stone-500 mt-0.5">
+          {isWeekly ? 'هفتگی' : 'روزانه'}
+        </span>
+      </div>
+
+      {/* Date */}
+      <div className="text-[9px] text-stone-500" style={{ minWidth: '60px' }}>
+        {new Date(z.date + 'T00:00:00Z').toLocaleDateString('fa-IR', {
+          month: 'short', day: 'numeric', timeZone: 'UTC',
+        })}
+      </div>
+
+      {/* Price */}
+      <div className="font-bold tabular-nums text-stone-800 text-[11px]" style={{ minWidth: '60px' }}>
+        ${z.midpoint.toFixed(2)}
+      </div>
+
+      {/* Direction arrow */}
+      <div className="text-[10px]" style={{ color: isAbove ? PALETTE.reversal.text : PALETTE.passThrough.text }}>
+        {isInside ? '✓' : isAbove ? '↑' : '↓'}
+      </div>
+
+      {/* Distance: points/pips/pct */}
+      <div className="flex flex-col items-end text-[8px] leading-tight mr-auto">
+        <div className="flex items-center gap-1.5">
+          <span className="text-stone-400">پوینت:</span>
+          <span className="font-bold tabular-nums text-stone-700">{points.toFixed(1)}</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-stone-400">pip:</span>
+          <span className="font-bold tabular-nums text-stone-700">{pips.toFixed(0)}</span>
+          <span className="text-stone-400">|</span>
+          <span className="font-bold tabular-nums" style={{
+            color: isInside ? PALETTE.divergence.text :
+                   isAbove ? PALETTE.reversal.text : PALETTE.passThrough.text,
+          }}>{distPct.toFixed(2)}٪</span>
         </div>
       </div>
     </div>

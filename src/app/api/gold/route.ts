@@ -318,6 +318,12 @@ type ZoneAnalysis = {
   nearestZone: ImportantZone | null;
   nearestDistance: number | null;  // % distance to nearest zone
   nearestDirection: 'above' | 'below' | 'inside' | null;
+  // Direction-aware targets (based on RSI velocity / price trend)
+  nearestAbove: ImportantZone | null;   // closest zone ABOVE current price
+  nearestBelow: ImportantZone | null;   // closest zone BELOW current price
+  nextTarget: ImportantZone | null;     // zone in direction of movement
+  nextTargetDistance: number | null;    // % distance to next target
+  nextTargetDirection: 'up' | 'down' | 'flat' | null;
 };
 
 // Detect Doji candles in a list of candles
@@ -353,6 +359,7 @@ function analyzeImportantZones(
   dailyCandles: Candle[],
   weeklyCandles: Candle[],
   currentPrice: number,
+  rsiVelocity: number = 0,
 ): ZoneAnalysis {
   // Detect Dojis
   const dailyDojis = detectDojis(dailyCandles.slice(0, -1));   // exclude current incomplete day
@@ -363,31 +370,69 @@ function analyzeImportantZones(
   const allZones = [...dailyZones, ...weeklyZones];
 
   if (allZones.length === 0) {
-    return { zones: [], insideZones: [], nearestZone: null, nearestDistance: null, nearestDirection: null };
+    return {
+      zones: [], insideZones: [], nearestZone: null,
+      nearestDistance: null, nearestDirection: null,
+      nearestAbove: null, nearestBelow: null,
+      nextTarget: null, nextTargetDistance: null, nextTargetDirection: null,
+    };
   }
 
-  // Only keep zones within ±10% of current price (to keep list manageable)
+  // Only keep zones within ±10% of current price
   const filterWindow = currentPrice * 0.10;
   const relevantZones = allZones.filter(z =>
     Math.abs(z.midpoint - currentPrice) <= filterWindow
   );
 
-  // Find zones we're inside (price within [rangeLow, rangeHigh] + small tolerance)
-  // Tolerance: 0.15% of price (about $6 at $3800)
+  // Find zones we're inside (price within [rangeLow, rangeHigh] + tolerance)
   const insideTolerance = currentPrice * 0.0015;
   const insideZones = relevantZones.filter(z =>
     currentPrice >= z.rangeLow - insideTolerance &&
     currentPrice <= z.rangeHigh + insideTolerance
   );
 
-  // Sort by proximity to current price (closest first)
+  // Sort by proximity (closest first)
   const sortedZones = relevantZones.sort((a, b) => {
     const distA = Math.abs(a.midpoint - currentPrice);
     const distB = Math.abs(b.midpoint - currentPrice);
     return distA - distB;
   });
 
-  // Nearest zone (excluding ones we're inside)
+  // Find nearest zone above and below (excluding inside zones)
+  const zonesAbove = sortedZones.filter(z =>
+    z.midpoint > currentPrice && !insideZones.includes(z)
+  );
+  const zonesBelow = sortedZones.filter(z =>
+    z.midpoint < currentPrice && !insideZones.includes(z)
+  );
+  const nearestAbove = zonesAbove.length > 0 ? zonesAbove[0] : null;
+  const nearestBelow = zonesBelow.length > 0 ? zonesBelow[0] : null;
+
+  // Determine next target based on RSI velocity (or price trend)
+  // velocity > 0.5 → up trend → target is nearestAbove
+  // velocity < -0.5 → down trend → target is nearestBelow
+  // flat → target is nearest overall
+  let nextTarget: ImportantZone | null = null;
+  let nextTargetDirection: 'up' | 'down' | 'flat' | null = null;
+  if (rsiVelocity > 0.5 && nearestAbove) {
+    nextTarget = nearestAbove;
+    nextTargetDirection = 'up';
+  } else if (rsiVelocity < -0.5 && nearestBelow) {
+    nextTarget = nearestBelow;
+    nextTargetDirection = 'down';
+  } else {
+    // flat — pick whichever is closer
+    nextTarget = sortedZones.find(z => !insideZones.includes(z)) || null;
+    nextTargetDirection = nextTarget
+      ? (nextTarget.midpoint > currentPrice ? 'up' : 'down')
+      : null;
+  }
+
+  const nextTargetDistance = nextTarget
+    ? (Math.abs(nextTarget.midpoint - currentPrice) / currentPrice) * 100
+    : null;
+
+  // Nearest zone (any direction)
   const nearestNonInside = sortedZones.find(z => !insideZones.includes(z));
   let nearestDistance: number | null = null;
   let nearestDirection: 'above' | 'below' | 'inside' | null = null;
@@ -399,11 +444,16 @@ function analyzeImportantZones(
   }
 
   return {
-    zones: sortedZones.slice(0, 8),  // top 8 nearest
+    zones: sortedZones.slice(0, 10),  // top 10 nearest
     insideZones,
     nearestZone: nearestNonInside || (insideZones.length > 0 ? insideZones[0] : null),
     nearestDistance,
     nearestDirection,
+    nearestAbove,
+    nearestBelow,
+    nextTarget,
+    nextTargetDistance,
+    nextTargetDirection,
   };
 }
 
@@ -654,7 +704,9 @@ export async function GET() {
   }
 
   // Analyze important zones from daily + weekly Doji candles
-  const zoneAnalysis = analyzeImportantZones(dailyCandles, weeklyCandles, lastPrice);
+  // Pass RSI velocity to determine direction of movement
+  const rsiVelocity = features?.rsiVelocity10 ?? 0;
+  const zoneAnalysis = analyzeImportantZones(dailyCandles, weeklyCandles, lastPrice, rsiVelocity);
 
   // Detect if market is currently closed (no recent candle in last 2 hours)
   const now = Date.now();
@@ -773,6 +825,11 @@ export async function GET() {
       nearestZone: zoneAnalysis.nearestZone,
       nearestDistance: zoneAnalysis.nearestDistance,
       nearestDirection: zoneAnalysis.nearestDirection,
+      nearestAbove: zoneAnalysis.nearestAbove,
+      nearestBelow: zoneAnalysis.nearestBelow,
+      nextTarget: zoneAnalysis.nextTarget,
+      nextTargetDistance: zoneAnalysis.nextTargetDistance,
+      nextTargetDirection: zoneAnalysis.nextTargetDirection,
       currentPrice: lastPrice,
     },
     // Previous day analysis
