@@ -53,16 +53,38 @@ jobs:
       - name: Patch Kotlin version compatibility
         working-directory: android-app/android
         run: |
-          # Add suppressKotlinVersionCompatibilityCheck to composeOptions in app/build.gradle
-          # This resolves the Compose Compiler 1.5.15 / Kotlin 1.9.24 incompatibility
-          sed -i '/composeOptions {/a\        suppressKotlinVersionCompatibilityCheck = true' app/build.gradle || true
+          echo "=== Before patch ==="
+          cat gradle.properties | grep -i kotlin || echo "(no kotlin in gradle.properties)"
+          echo "---"
           
-          # Also patch the root build.gradle to use Kotlin 1.9.25
-          sed -i 's/kotlinVersion = "1.9.24"/kotlinVersion = "1.9.25"/g' build.gradle || true
-          sed -i 's/"org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.24"/"org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.25"/g' build.gradle || true
+          # 1. Force Kotlin 1.9.25 in gradle.properties
+          if grep -q "android.kotlinVersion" gradle.properties; then
+            sed -i 's/android.kotlinVersion=.*/android.kotlinVersion=1.9.25/' gradle.properties
+          else
+            echo "android.kotlinVersion=1.9.25" >> gradle.properties
+          fi
           
-          echo "=== Patched build.gradle files ==="
-          grep -n "suppressKotlinVersion\|kotlinVersion\|kotlin-gradle-plugin" app/build.gradle build.gradle 2>/dev/null || echo "(no matches found)"
+          # 2. Also set kotlinVersion in root build.gradle
+          sed -i "s/kotlinVersion = findProperty('android.kotlinVersion') ?: '1.9.24'/kotlinVersion = findProperty('android.kotlinVersion') ?: '1.9.25'/" build.gradle
+          sed -i "s/'1.9.24'/'1.9.25'/g" build.gradle
+          
+          # 3. Add suppressKotlinVersionCompatibilityCheck to app/build.gradle composeOptions
+          # First check if composeOptions exists
+          if grep -q "composeOptions" app/build.gradle; then
+            # Add suppression inside existing composeOptions
+            sed - '/composeOptions {/a\        suppressKotlinVersionCompatibilityCheck = true' app/build.gradle
+          else
+            # Create composeOptions block inside android { ... }
+            sed - '/android {/a\    composeOptions {\n        suppressKotlinVersionCompatibilityCheck = true\n    }' app/build.gradle
+          fi
+          
+          echo "=== After patch ==="
+          echo "--- gradle.properties ---"
+          cat gradle.properties | grep -i kotlin
+          echo "--- build.gradle kotlin ---"
+          grep -n "kotlinVersion" build.gradle
+          echo "--- app/build.gradle compose ---"
+          grep -n -A 2 "composeOptions" app/build.gradle || echo "(no composeOptions)"
 
       - name: Build APK with Gradle
         working-directory: android-app/android
