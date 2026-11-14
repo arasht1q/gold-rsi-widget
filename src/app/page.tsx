@@ -75,6 +75,18 @@ type ApiResponse = {
     topFa: string;
     reasons: string[];
   } | null;
+  approachPrediction: {
+    reversal: number;
+    divergence: number;
+    passThrough: number;
+    topCategory: string;
+    topFa: string;
+    reasons: string[];
+    targetLevel: number;
+    currentRsi: number;
+    distanceToLevel: number;
+    isSimulation: boolean;
+  } | null;
   pattern: {
     pattern: string;
     label: string;
@@ -411,6 +423,78 @@ export default function Home() {
                   <span>{r}</span>
                 </div>
               ))}
+            </div>
+          </Card>
+        )}
+
+        {/* ====== APPROACH PREDICTION CARD (when approaching but not in zone) ====== */}
+        {!data?.prediction && data?.approachPrediction && (
+          <Card className="border-blue-500/30 bg-gradient-to-br from-slate-900 to-slate-900/60 p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-7 h-7 rounded-lg bg-blue-500/20 flex items-center justify-center">
+                <Zap className="w-4 h-4 text-blue-400" />
+              </div>
+              <div className="flex-1">
+                <div className="text-sm font-bold">پیش‌بینی فرضی واکنش بازار</div>
+                <div className="text-[10px] text-slate-400">اگر RSI به سطح {data.approachPrediction.targetLevel} برسد</div>
+              </div>
+              <Badge variant="outline" className="border-blue-500/50 text-blue-300 text-[10px]">
+                محتمل: {data.approachPrediction.topFa}
+              </Badge>
+            </div>
+
+            {/* Distance indicator */}
+            <div className="mb-3 p-2 rounded-lg bg-blue-500/10 border border-blue-500/30">
+              <div className="flex items-center justify-between text-[10px]">
+                <span className="text-blue-300 flex items-center gap-1">
+                  <Target className="w-3 h-3" />
+                  RSI فعلی: {data.approachPrediction.currentRsi.toFixed(2)}
+                </span>
+                <span className="text-blue-200 font-bold">
+                  {data.approachPrediction.distanceToLevel.toFixed(2)} واحد تا سطح {data.approachPrediction.targetLevel}
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <ProbBar
+                label="برگشت (تک‌برخورد)"
+                value={data.approachPrediction.reversal}
+                color="bg-green-500"
+                icon={<TrendingUp className="w-3 h-3" />}
+              />
+              <ProbBar
+                label="واگرایی"
+                value={data.approachPrediction.divergence}
+                color="bg-orange-500"
+                icon={<Activity className="w-3 h-3" />}
+              />
+              <ProbBar
+                label="گذشتن از سطح"
+                value={data.approachPrediction.passThrough}
+                color="bg-red-500"
+                icon={<TrendingDown className="w-3 h-3" />}
+              />
+            </div>
+
+            <Separator className="my-3 bg-slate-800" />
+
+            <div className="space-y-1">
+              <div className="text-[10px] font-bold text-slate-400 mb-1">دلایل پیش‌بینی:</div>
+              {data.approachPrediction.reasons.map((r, i) => (
+                <div key={i} className="text-[11px] text-slate-300 flex items-start gap-1.5">
+                  <span className="text-blue-400 mt-0.5">•</span>
+                  <span>{r}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-3 p-2 rounded bg-blue-500/5 border border-blue-500/20 text-[10px] text-blue-300/80 flex items-start gap-1.5">
+              <AlertTriangle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+              <span>
+                این پیش‌بینی بر اساس ویژگی‌های فعلی بازار (سرعت RSI، حجم، سشن) است و فرض می‌کند RSI همین الان به سطح می‌رسد.
+                وقتی واقعاً به سطح برسد و چند کندل در زون بماند، احتمالات می‌تواند متفاوت باشد.
+              </span>
             </div>
           </Card>
         )}

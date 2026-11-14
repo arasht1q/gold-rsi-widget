@@ -6,6 +6,7 @@ import {
   detectPattern,
   extractFeatures,
   predict,
+  predictApproaching,
   buildEntryTicket,
 } from '@/lib/gold-analysis';
 
@@ -207,6 +208,35 @@ export async function GET() {
 
   const features = extractFeatures(candles30m, rsi, sma50);
   const prediction = features ? predict(features) : null;
+
+  // Pre-touch prediction: if not in zone but within 10 units of 40 or 60,
+  // simulate what would happen if RSI touched the nearest level
+  let approachPrediction: any = null;
+  let approachLevel: 40 | 60 | null = null;
+  if (features && !features.inZone) {
+    const dist40 = Math.abs(features.rsi - 40);
+    const dist60 = Math.abs(features.rsi - 60);
+    const nearestLevelNum = dist40 < dist60 ? 40 : 60;
+    const nearestDistVal = Math.min(dist40, dist60);
+    // Show approach prediction if within 10 units
+    if (nearestDistVal <= 10) {
+      approachLevel = nearestLevelNum as 40 | 60;
+      const ap = predictApproaching(features, approachLevel);
+      approachPrediction = {
+        reversal: ap.reversal,
+        divergence: ap.divergence,
+        passThrough: ap.passThrough,
+        topCategory: ap.topCategory,
+        topFa: ap.topFa,
+        reasons: ap.reasons,
+        targetLevel: approachLevel,
+        currentRsi: features.rsi,
+        distanceToLevel: nearestDistVal,
+        isSimulation: true,
+      };
+    }
+  }
+
   const pattern = detectPattern(candles5m);
   const ticket = buildEntryTicket(prediction, pattern, candles30m, features);
 
@@ -321,6 +351,7 @@ export async function GET() {
       topFa: prediction.topFa,
       reasons: prediction.reasons,
     } : null,
+    approachPrediction,
     pattern: {
       pattern: pattern.pattern,
       label: pattern.label,

@@ -278,32 +278,55 @@ export type Prediction = {
 export function predict(f: Features): Prediction | null {
   if (!f.inZone || f.zoneLevel === null) return null;
   const level = f.zoneLevel as 40 | 60;
+  return predictForLevel(f, level, false);
+}
+
+/**
+ * Pre-touch prediction: simulate what would happen IF RSI touched the nearest
+ * level right now. Used when RSI is approaching but not yet in zone.
+ *
+ * Uses current market features (velocity, volume, session, trend) but assumes
+ * candles_in_zone = 0 (just touched).
+ */
+export function predictApproaching(f: Features, targetLevel: 40 | 60): Prediction {
+  // Build a simulated features object: same as f but with inZone=true, level set, candles=0
+  const simulated: Features = {
+    ...f,
+    inZone: true,
+    zoneLevel: targetLevel,
+    candlesInZone: 0,
+  };
+  return predictForLevel(simulated, targetLevel, true);
+}
+
+function predictForLevel(f: Features, level: 40 | 60, isSimulation: boolean): Prediction {
   const means = MEANS[level];
 
   // Score each category by similarity to its mean profile
-  // Lower distance = higher score
   const cats = ['REVERSAL', 'DIVERGENCE', 'PASS_THROUGH'] as const;
   const distances: Record<string, number> = {};
   for (const c of cats) {
     const m = means[c];
-    // weighted distance (candles in zone gets most weight based on ANOVA F-score)
     const dCandles = Math.pow((f.candlesInZone - m.candlesInZone) / 3, 2);
     const dVel = Math.pow((f.rsiVelocity10 - m.rsiVel10) / 4, 2);
     const dVol = Math.pow((f.volRatio5_20 - m.volRatio) / 0.4, 2);
     distances[c] = Math.sqrt(dCandles * 3 + dVel * 1 + dVol * 1);
   }
-  // Convert distance to weight (closer = heavier)
   const invD = cats.map(c => 1 / (distances[c] + 0.3));
   const sumInv = invD.reduce((a, b) => a + b, 0);
 
   let probs = cats.map((c, idx) => BASE_RATES[c] * SESSION_MULT[f.session][c] * (invD[idx] / (sumInv / 3)));
-  // Normalize
   const sumP = probs.reduce((a, b) => a + b, 0);
   probs = probs.map(p => p / sumP);
 
   // Build reasoning
   const reasons: string[] = [];
-  reasons.push(`RSI در زون ${level} است و ${f.candlesInZone} کندل است که در زون مانده`);
+  if (isSimulation) {
+    reasons.push(`پیش‌بینی فرضی: اگر RSI الان به سطح ${level} برسد`);
+    reasons.push(`RSI فعلی ${f.rsi.toFixed(2)} — فاصله ${Math.abs(f.rsi - level).toFixed(2)} واحد تا سطح ${level}`);
+  } else {
+    reasons.push(`RSI در زون ${level} است و ${f.candlesInZone} کندل است که در زون مانده`);
+  }
   if (f.candlesInZone >= 5) {
     reasons.push(`مدت طولانی در زون → احتمال برگشت بیشتر`);
   } else if (f.candlesInZone <= 2) {
@@ -311,9 +334,13 @@ export function predict(f: Features): Prediction | null {
   }
   if (Math.abs(f.rsiVelocity10) > 3) {
     reasons.push(`سرعت RSI زیاد است (${f.rsiVelocity10.toFixed(1)}) → خطر واگرایی`);
+  } else if (Math.abs(f.rsiVelocity10) < 1) {
+    reasons.push(`سرعت RSI کم است (${f.rsiVelocity10.toFixed(1)}) → احتمال برگشت بیشتر`);
   }
   if (f.volRatio5_20 > 1.3) {
     reasons.push(`حجم اخیر جهش داشته (${f.volRatio5_20.toFixed(2)}) → مومنتوم قوی`);
+  } else if (f.volRatio5_20 < 0.8) {
+    reasons.push(`حجم اخیر کم است (${f.volRatio5_20.toFixed(2)}) → بازار بی‌تحرک`);
   }
   reasons.push(`سشن: ${f.sessionFa}`);
 
