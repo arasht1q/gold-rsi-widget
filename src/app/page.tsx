@@ -23,6 +23,22 @@ import {
 } from 'lucide-react';
 import { InstallGuide } from '@/components/install-guide';
 
+type Prediction = {
+  reversal: number;
+  divergence: number;
+  passThrough: number;
+  topCategory: string;
+  topFa: string;
+  reasons: string[];
+};
+
+type ApproachPrediction = Prediction & {
+  targetLevel: number;
+  currentRsi: number;
+  distanceToLevel: number;
+  isSimulation: boolean;
+};
+
 type ApiResponse = {
   ok: boolean;
   priceSource: string;
@@ -67,26 +83,9 @@ type ApiResponse = {
     sessionFa: string;
     trend50Pct: number;
   } | null;
-  prediction: {
-    reversal: number;
-    divergence: number;
-    passThrough: number;
-    topCategory: string;
-    topFa: string;
-    reasons: string[];
-  } | null;
-  approachPrediction: {
-    reversal: number;
-    divergence: number;
-    passThrough: number;
-    topCategory: string;
-    topFa: string;
-    reasons: string[];
-    targetLevel: number;
-    currentRsi: number;
-    distanceToLevel: number;
-    isSimulation: boolean;
-  } | null;
+  prediction: Prediction | null;
+  approach40: ApproachPrediction | null;
+  approach60: ApproachPrediction | null;
   pattern: {
     pattern: string;
     label: string;
@@ -125,6 +124,40 @@ type ApiResponse = {
   sma200Last: number | null;
 };
 
+// Pastel palette
+const PALETTE = {
+  // Category accents (pastel)
+  reversal: {
+    text: '#5b8c5a',
+    bgSoft: '#e8f4e8',
+    bgBar: '#a8d5a8',
+    border: '#c3e6c3',
+  },
+  divergence: {
+    text: '#c08a5a',
+    bgSoft: '#fdf3e7',
+    bgBar: '#f5cfa0',
+    border: '#f0d8b5',
+  },
+  passThrough: {
+    text: '#b56b6b',
+    bgSoft: '#fce8e8',
+    bgBar: '#f0a8a8',
+    border: '#f0c8c8',
+  },
+  // Level-specific
+  level40: {
+    text: '#5a7d9c',
+    bgSoft: '#e8f0f8',
+    border: '#c8dcef',
+  },
+  level60: {
+    text: '#9c7a5a',
+    bgSoft: '#f8ede0',
+    border: '#e8d5b8',
+  },
+};
+
 export default function Home() {
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -150,54 +183,62 @@ export default function Home() {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 30000); // every 30s
+    const interval = setInterval(fetchData, 30000);
     return () => clearInterval(interval);
   }, [fetchData]);
 
-  // Register service worker for PWA
   useEffect(() => {
     if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').catch(() => {
-        // ignore — PWA still works without SW
-      });
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
     }
   }, []);
 
-  // Determine alert level
   const alertLevel = data?.status === 'IN_ZONE' ? 'critical'
                     : data?.status === 'APPROACHING' ? 'high'
                     : data?.status === 'WATCH' ? 'medium'
                     : 'low';
 
+  // For each level, get the right prediction: actual if in that zone, otherwise approach
+  const level40Pred = data?.features?.inZone && data.features.zoneLevel === 40
+    ? { ...(data.prediction as Prediction), targetLevel: 40, currentRsi: data.features.rsi, distanceToLevel: 0, isSimulation: false }
+    : data?.approach40;
+  const level60Pred = data?.features?.inZone && data.features.zoneLevel === 60
+    ? { ...(data.prediction as Prediction), targetLevel: 60, currentRsi: data.features.rsi, distanceToLevel: 0, isSimulation: false }
+    : data?.approach60;
+
   return (
-    <div dir="rtl" className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-100"
-         style={{ fontFamily: 'system-ui, -apple-system, "Segoe UI", Tahoma, sans-serif' }}>
+    <div dir="rtl" className="min-h-screen text-stone-700"
+         style={{
+           fontFamily: 'system-ui, -apple-system, "Segoe UI", Tahoma, sans-serif',
+           background: 'linear-gradient(180deg, #f5f5f4 0%, #e7e5e4 100%)',
+         }}>
       <div className="max-w-md mx-auto p-4 space-y-3 pb-12">
 
         {/* Header */}
         <div className="flex items-center justify-between pt-2">
           <div className="flex items-center gap-2">
-            <div className="w-9 h-9 rounded-xl bg-amber-500/20 flex items-center justify-center border border-amber-500/30">
-              <Activity className="w-5 h-5 text-amber-400" />
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center"
+                 style={{ background: PALETTE.level60.bgSoft, border: `1px solid ${PALETTE.level60.border}` }}>
+              <Activity className="w-5 h-5" style={{ color: PALETTE.level60.text }} />
             </div>
             <div>
-              <div className="text-sm font-bold">ویجت RSI طلا</div>
-              <div className="text-[10px] text-slate-400">M30 · RSI(30) · سطوح ۴۰/۶۰</div>
+              <div className="text-sm font-bold text-stone-800">ویجت RSI طلا</div>
+              <div className="text-[10px] text-stone-500">M30 · RSI(30) · سطوح ۴۰/۶۰</div>
             </div>
           </div>
           <div className="flex items-center gap-2">
             {lastUpdate && (
-              <div className="text-[10px] text-slate-400 text-left">
+              <div className="text-[10px] text-stone-500 text-left">
                 <div>{lastUpdate.toLocaleTimeString('fa-IR')}</div>
-                <div className="text-slate-500">آخرین بروزرسانی</div>
+                <div className="text-stone-400">آخرین بروزرسانی</div>
               </div>
             )}
             <Button variant="ghost" size="icon" onClick={fetchData} disabled={loading}
-                    className="h-9 w-9 text-slate-300 hover:text-amber-400">
+                    className="h-9 w-9 text-stone-500 hover:text-stone-800">
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </Button>
             <Button variant="ghost" size="icon" onClick={() => setShowInstall(true)}
-                    className="h-9 w-9 text-slate-300 hover:text-amber-400"
+                    className="h-9 w-9 text-stone-500 hover:text-stone-800"
                     title="راهنمای نصب روی گوشی">
               <Smartphone className="w-4 h-4" />
             </Button>
@@ -206,38 +247,44 @@ export default function Home() {
 
         {showInstall && <InstallGuide onClose={() => setShowInstall(false)} />}
 
-        {/* ====== WIDGET CARD (compact, glanceable) ====== */}
-        <Card className="relative overflow-hidden border-slate-800 bg-slate-900/80 backdrop-blur p-4 shadow-2xl">
-          {/* Status glow */}
-          <div className={`absolute inset-0 opacity-20 ${
-            alertLevel === 'critical' ? 'bg-red-500' :
-            alertLevel === 'high' ? 'bg-amber-500' :
-            alertLevel === 'medium' ? 'bg-blue-500' : 'bg-slate-500'
-          }`} />
+        {/* ====== WIDGET CARD ====== */}
+        <Card className="relative overflow-hidden bg-white p-4 shadow-sm"
+              style={{ borderColor: '#e7e5e4', borderWidth: 1 }}>
           <div className="relative">
             {/* Top row: price + status pill */}
             <div className="flex items-start justify-between mb-3">
               <div>
-                <div className="text-[10px] text-slate-400 mb-0.5">طلا / اونس (XAUUSD)</div>
-                <div className="text-3xl font-bold tabular-nums tracking-tight">
+                <div className="text-[10px] text-stone-500 mb-0.5">طلا / اونس (XAUUSD)</div>
+                <div className="text-3xl font-bold tabular-nums tracking-tight text-stone-900">
                   ${data?.lastPrice?.toFixed(2) ?? '...'}
                 </div>
                 {data?.sma50Last && (
-                  <div className="text-[10px] text-slate-500 mt-0.5">
+                  <div className="text-[10px] text-stone-400 mt-0.5">
                     SMA50: {data.sma50Last.toFixed(2)}
                   </div>
                 )}
               </div>
               <div className="flex flex-col items-end gap-1">
-                <Badge className={`
-                  ${alertLevel === 'critical' ? 'bg-red-500/90 text-white animate-pulse' :
-                    alertLevel === 'high' ? 'bg-amber-500/90 text-white' :
-                    alertLevel === 'medium' ? 'bg-blue-500/80 text-white' :
-                    'bg-slate-700 text-slate-200'}`}>
+                <Badge style={{
+                  background: alertLevel === 'critical' ? PALETTE.passThrough.bgSoft :
+                              alertLevel === 'high' ? PALETTE.divergence.bgSoft :
+                              alertLevel === 'medium' ? PALETTE.level40.bgSoft :
+                              '#f5f5f4',
+                  color: alertLevel === 'critical' ? PALETTE.passThrough.text :
+                         alertLevel === 'high' ? PALETTE.divergence.text :
+                         alertLevel === 'medium' ? PALETTE.level40.text :
+                         '#78716c',
+                  border: `1px solid ${
+                    alertLevel === 'critical' ? PALETTE.passThrough.border :
+                    alertLevel === 'high' ? PALETTE.divergence.border :
+                    alertLevel === 'medium' ? PALETTE.level40.border :
+                    '#e7e5e4'
+                  }`,
+                }}>
                   {data?.statusFa ?? '...'}
                 </Badge>
                 {data?.features?.sessionFa && (
-                  <div className="text-[10px] text-slate-400 flex items-center gap-1">
+                  <div className="text-[10px] text-stone-500 flex items-center gap-1">
                     <Clock className="w-3 h-3" />
                     {data.features.sessionFa}
                   </div>
@@ -245,51 +292,55 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Source badge */}
+            {/* Source badge + OHLC */}
             {data?.priceSource && (
-              <div className="space-y-1 mb-2">
+              <div className="space-y-1.5 mb-3">
                 <div className="flex items-center justify-between text-[9px]">
-                  <Badge variant="outline" className={`text-[9px] py-0 px-1.5 ${
-                    data.marketOpen
-                      ? 'border-green-500/40 text-green-300'
-                      : 'border-slate-600 text-slate-400'
-                  }`}>
+                  <Badge variant="outline" className="text-[9px] py-0 px-1.5"
+                         style={{
+                           borderColor: data.marketOpen ? PALETTE.reversal.border : '#e7e5e4',
+                           color: data.marketOpen ? PALETTE.reversal.text : '#a8a29e',
+                           background: data.marketOpen ? PALETTE.reversal.bgSoft : '#f5f5f4',
+                         }}>
                     <span className={`w-1.5 h-1.5 rounded-full ml-1 ${
-                      data.marketOpen ? 'bg-green-400 animate-pulse' : 'bg-slate-500'
-                    }`} />
+                      data.marketOpen ? 'animate-pulse' : ''
+                    }`} style={{
+                      background: data.marketOpen ? PALETTE.reversal.text : '#a8a29e',
+                    }} />
                     {data.marketOpen ? 'بازار باز' : 'بازار بسته'}
                   </Badge>
-                  <span className="text-slate-500" title={data.priceSourceDescription}>
+                  <span className="text-stone-400" title={data.priceSourceDescription}>
                     قیمت: {data.tvQuote ? 'TradingView TVC:GOLD' : data.priceSource.startsWith('GC=F') ? 'Yahoo GC=F' : 'Binance PAXG'}
                   </span>
                 </div>
-                {/* Today's OHLC from TradingView */}
                 {data?.tvQuote && (
-                  <div className="grid grid-cols-4 gap-1 text-[9px] mt-1">
-                    <div className="bg-slate-800/40 rounded p-1 text-center">
-                      <div className="text-slate-500">Open</div>
-                      <div className="font-bold text-slate-200 tabular-nums">{data.tvQuote.open.toFixed(2)}</div>
+                  <div className="grid grid-cols-4 gap-1 text-[9px]">
+                    <div className="rounded p-1 text-center" style={{ background: '#f5f5f4' }}>
+                      <div className="text-stone-400">Open</div>
+                      <div className="font-bold text-stone-700 tabular-nums">{data.tvQuote.open.toFixed(2)}</div>
                     </div>
-                    <div className="bg-slate-800/40 rounded p-1 text-center">
-                      <div className="text-slate-500">High</div>
-                      <div className="font-bold text-green-300 tabular-nums">{data.tvQuote.high.toFixed(2)}</div>
+                    <div className="rounded p-1 text-center" style={{ background: PALETTE.reversal.bgSoft }}>
+                      <div className="text-stone-400">High</div>
+                      <div className="font-bold tabular-nums" style={{ color: PALETTE.reversal.text }}>{data.tvQuote.high.toFixed(2)}</div>
                     </div>
-                    <div className="bg-slate-800/40 rounded p-1 text-center">
-                      <div className="text-slate-500">Low</div>
-                      <div className="font-bold text-red-300 tabular-nums">{data.tvQuote.low.toFixed(2)}</div>
+                    <div className="rounded p-1 text-center" style={{ background: PALETTE.passThrough.bgSoft }}>
+                      <div className="text-stone-400">Low</div>
+                      <div className="font-bold tabular-nums" style={{ color: PALETTE.passThrough.text }}>{data.tvQuote.low.toFixed(2)}</div>
                     </div>
-                    <div className={`bg-slate-800/40 rounded p-1 text-center ${
-                      (data.tvQuote.change ?? 0) >= 0 ? 'text-green-300' : 'text-red-300'
-                    }`}>
-                      <div className="text-slate-500">Change</div>
-                      <div className="font-bold tabular-nums">
+                    <div className="rounded p-1 text-center"
+                         style={{
+                           background: (data.tvQuote.change ?? 0) >= 0 ? PALETTE.reversal.bgSoft : PALETTE.passThrough.bgSoft
+                         }}>
+                      <div className="text-stone-400">Change</div>
+                      <div className="font-bold tabular-nums"
+                           style={{ color: (data.tvQuote.change ?? 0) >= 0 ? PALETTE.reversal.text : PALETTE.passThrough.text }}>
                         {(data.tvQuote.change ?? 0) >= 0 ? '+' : ''}{(data.tvQuote.change ?? 0).toFixed(2)}%
                       </div>
                     </div>
                   </div>
                 )}
-                <div className="flex items-center justify-between text-[9px] text-slate-500 pt-0.5">
-                  <span>RSI محاسبه‌شده از: </span>
+                <div className="flex items-center justify-between text-[9px] text-stone-400 pt-0.5">
+                  <span>RSI از: </span>
                   <span>{data.candleSource || 'Yahoo GC=F'}</span>
                 </div>
               </div>
@@ -297,62 +348,69 @@ export default function Home() {
 
             {/* RSI gauge */}
             <div className="space-y-1.5">
-              <div className="flex items-center justify-between text-[10px] text-slate-400">
+              <div className="flex items-center justify-between text-[10px] text-stone-500">
                 <span>RSI(30)</span>
-                <span className="font-bold text-base text-slate-100 tabular-nums">
+                <span className="font-bold text-base text-stone-800 tabular-nums">
                   {data?.lastRsi?.toFixed(2) ?? '...'}
                 </span>
               </div>
-              {/* RSI bar with zones */}
-              <div className="relative h-3 bg-slate-800 rounded-full overflow-hidden">
+              <div className="relative h-3 rounded-full overflow-hidden" style={{ background: '#e7e5e4' }}>
                 {/* zone bands */}
-                <div className="absolute top-0 bottom-0 bg-green-500/30"
-                     style={{ left: '39%', width: '2%' }} />
-                <div className="absolute top-0 bottom-0 bg-red-500/30"
-                     style={{ left: '59%', width: '2%' }} />
+                <div className="absolute top-0 bottom-0"
+                     style={{ left: '39%', width: '2%', background: PALETTE.level40.bgBar || '#a8c8e0' }} />
+                <div className="absolute top-0 bottom-0"
+                     style={{ left: '59%', width: '2%', background: PALETTE.level60.bgBar || '#e8c8a0' }} />
                 {/* fill */}
                 <div
-                  className={`h-full transition-all ${
-                    (data?.lastRsi ?? 50) > 60 ? 'bg-red-400' :
-                    (data?.lastRsi ?? 50) < 40 ? 'bg-green-400' : 'bg-amber-400'
-                  }`}
-                  style={{ width: `${Math.min(100, Math.max(0, data?.lastRsi ?? 0))}%` }}
+                  className="h-full transition-all"
+                  style={{
+                    width: `${Math.min(100, Math.max(0, data?.lastRsi ?? 0))}%`,
+                    background: (data?.lastRsi ?? 50) > 60 ? PALETTE.level60.bgBar :
+                                (data?.lastRsi ?? 50) < 40 ? PALETTE.level40.bgBar :
+                                '#d6d3d1',
+                  }}
                 />
-                {/* markers at 40/60 */}
-                <div className="absolute top-0 bottom-0 w-px bg-slate-500/60" style={{ left: '40%' }} />
-                <div className="absolute top-0 bottom-0 w-px bg-slate-500/60" style={{ left: '60%' }} />
+                <div className="absolute top-0 bottom-0 w-px bg-stone-400" style={{ left: '40%' }} />
+                <div className="absolute top-0 bottom-0 w-px bg-stone-400" style={{ left: '60%' }} />
               </div>
-              <div className="flex justify-between text-[9px] text-slate-500">
-                <span>۰</span><span className="text-green-400">۴۰</span>
-                <span>۵۰</span><span className="text-red-400">۶۰</span><span>۱۰۰</span>
+              <div className="flex justify-between text-[9px] text-stone-400">
+                <span>۰</span>
+                <span style={{ color: PALETTE.level40.text }}>۴۰</span>
+                <span>۵۰</span>
+                <span style={{ color: PALETTE.level60.text }}>۶۰</span>
+                <span>۱۰۰</span>
               </div>
             </div>
 
-            {/* Proximity indicator (only when not in zone) */}
+            {/* Proximity indicator */}
             {data && !data.features?.inZone && data.proximity > 0.1 && (
-              <div className="mt-3 p-2 rounded-lg bg-slate-800/60 border border-slate-700/50">
+              <div className="mt-3 p-2 rounded-lg" style={{ background: '#f5f5f4', border: '1px solid #e7e5e4' }}>
                 <div className="flex items-center justify-between text-[10px] mb-1">
-                  <span className="text-slate-400 flex items-center gap-1">
+                  <span className="text-stone-500 flex items-center gap-1">
                     <Target className="w-3 h-3" />
                     نزدیکی به سطح {data.level}
                   </span>
-                  <span className="font-bold text-amber-300">
+                  <span className="font-bold" style={{ color: PALETTE.divergence.text }}>
                     {data.nearestDist.toFixed(2)} واحد فاصله
                   </span>
                 </div>
-                <Progress value={data.proximity * 100} className="h-1.5 bg-slate-700" />
+                <Progress value={data.proximity * 100} className="h-1.5" style={{ background: '#e7e5e4' }} />
               </div>
             )}
 
             {/* In-zone info */}
             {data?.features?.inZone && data.features.zoneLevel && (
-              <div className="mt-3 p-2 rounded-lg bg-amber-500/10 border border-amber-500/30">
+              <div className="mt-3 p-2 rounded-lg"
+                   style={{
+                     background: PALETTE.divergence.bgSoft,
+                     border: `1px solid ${PALETTE.divergence.border}`,
+                   }}>
                 <div className="flex items-center justify-between text-xs">
-                  <span className="flex items-center gap-1 text-amber-300 font-medium">
+                  <span className="flex items-center gap-1 font-medium" style={{ color: PALETTE.divergence.text }}>
                     <Bell className="w-3 h-3" />
                     وارد زون {data.features.zoneLevel} شد
                   </span>
-                  <span className="text-amber-200 font-bold">
+                  <span className="font-bold" style={{ color: PALETTE.divergence.text }}>
                     {data.features.candlesInZone} کندل در زون
                   </span>
                 </div>
@@ -361,14 +419,13 @@ export default function Home() {
 
             {/* Market closed note */}
             {data && !data.marketOpen && (
-              <div className="mt-2 p-2 rounded-lg bg-slate-800/40 border border-slate-700/30">
-                <div className="text-[10px] text-slate-400 flex items-start gap-1.5">
+              <div className="mt-2 p-2 rounded-lg" style={{ background: '#f5f5f4', border: '1px solid #e7e5e4' }}>
+                <div className="text-[10px] text-stone-500 flex items-start gap-1.5">
                   <Clock className="w-3 h-3 mt-0.5 flex-shrink-0" />
                   <span>
                     بازار طلا شنبه‌ها تعطیل است. آخرین کندل: {data.lastCandleAgeMin > 1440
                       ? `${Math.floor(data.lastCandleAgeMin / 1440)} روز پیش`
                       : `${Math.floor(data.lastCandleAgeMin / 60)} ساعت پیش`}
-                    . داده‌ها از آخرین سشن جمعه است.
                   </span>
                 </div>
               </div>
@@ -376,151 +433,56 @@ export default function Home() {
           </div>
         </Card>
 
-        {/* ====== PREDICTION CARD (when in zone) ====== */}
-        {data?.prediction && (
-          <Card className="border-amber-500/30 bg-gradient-to-br from-slate-900 to-slate-900/60 p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <div className="w-7 h-7 rounded-lg bg-amber-500/20 flex items-center justify-center">
-                <Zap className="w-4 h-4 text-amber-400" />
-              </div>
-              <div className="flex-1">
-                <div className="text-sm font-bold">پیش‌بینی واکنش بازار</div>
-                <div className="text-[10px] text-slate-400">بر اساس آمار ۲ سال گذشته (۱۳۲۸ رویداد)</div>
-              </div>
-              <Badge variant="outline" className="border-amber-500/50 text-amber-300 text-[10px]">
-                محتمل: {data.prediction.topFa}
-              </Badge>
-            </div>
-
-            <div className="space-y-2">
-              <ProbBar
-                label="برگشت (تک‌برخورد)"
-                value={data.prediction.reversal}
-                color="bg-green-500"
-                icon={<TrendingUp className="w-3 h-3" />}
-              />
-              <ProbBar
-                label="واگرایی"
-                value={data.prediction.divergence}
-                color="bg-orange-500"
-                icon={<Activity className="w-3 h-3" />}
-              />
-              <ProbBar
-                label="گذشتن از سطح"
-                value={data.prediction.passThrough}
-                color="bg-red-500"
-                icon={<TrendingDown className="w-3 h-3" />}
-              />
-            </div>
-
-            <Separator className="my-3 bg-slate-800" />
-
-            <div className="space-y-1">
-              <div className="text-[10px] font-bold text-slate-400 mb-1">دلایل پیش‌بینی:</div>
-              {data.prediction.reasons.map((r, i) => (
-                <div key={i} className="text-[11px] text-slate-300 flex items-start gap-1.5">
-                  <span className="text-amber-400 mt-0.5">•</span>
-                  <span>{r}</span>
-                </div>
-              ))}
-            </div>
-          </Card>
+        {/* ====== ALWAYS-SHOW: PREDICTION FOR LEVEL 40 ====== */}
+        {level40Pred && (
+          <PredictionCard
+            level={40}
+            prediction={level40Pred}
+            isActual={!level40Pred.isSimulation}
+            palette={PALETTE.level40}
+          />
         )}
 
-        {/* ====== APPROACH PREDICTION CARD (when approaching but not in zone) ====== */}
-        {!data?.prediction && data?.approachPrediction && (
-          <Card className="border-blue-500/30 bg-gradient-to-br from-slate-900 to-slate-900/60 p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <div className="w-7 h-7 rounded-lg bg-blue-500/20 flex items-center justify-center">
-                <Zap className="w-4 h-4 text-blue-400" />
-              </div>
-              <div className="flex-1">
-                <div className="text-sm font-bold">پیش‌بینی فرضی واکنش بازار</div>
-                <div className="text-[10px] text-slate-400">اگر RSI به سطح {data.approachPrediction.targetLevel} برسد</div>
-              </div>
-              <Badge variant="outline" className="border-blue-500/50 text-blue-300 text-[10px]">
-                محتمل: {data.approachPrediction.topFa}
-              </Badge>
-            </div>
-
-            {/* Distance indicator */}
-            <div className="mb-3 p-2 rounded-lg bg-blue-500/10 border border-blue-500/30">
-              <div className="flex items-center justify-between text-[10px]">
-                <span className="text-blue-300 flex items-center gap-1">
-                  <Target className="w-3 h-3" />
-                  RSI فعلی: {data.approachPrediction.currentRsi.toFixed(2)}
-                </span>
-                <span className="text-blue-200 font-bold">
-                  {data.approachPrediction.distanceToLevel.toFixed(2)} واحد تا سطح {data.approachPrediction.targetLevel}
-                </span>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <ProbBar
-                label="برگشت (تک‌برخورد)"
-                value={data.approachPrediction.reversal}
-                color="bg-green-500"
-                icon={<TrendingUp className="w-3 h-3" />}
-              />
-              <ProbBar
-                label="واگرایی"
-                value={data.approachPrediction.divergence}
-                color="bg-orange-500"
-                icon={<Activity className="w-3 h-3" />}
-              />
-              <ProbBar
-                label="گذشتن از سطح"
-                value={data.approachPrediction.passThrough}
-                color="bg-red-500"
-                icon={<TrendingDown className="w-3 h-3" />}
-              />
-            </div>
-
-            <Separator className="my-3 bg-slate-800" />
-
-            <div className="space-y-1">
-              <div className="text-[10px] font-bold text-slate-400 mb-1">دلایل پیش‌بینی:</div>
-              {data.approachPrediction.reasons.map((r, i) => (
-                <div key={i} className="text-[11px] text-slate-300 flex items-start gap-1.5">
-                  <span className="text-blue-400 mt-0.5">•</span>
-                  <span>{r}</span>
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-3 p-2 rounded bg-blue-500/5 border border-blue-500/20 text-[10px] text-blue-300/80 flex items-start gap-1.5">
-              <AlertTriangle className="w-3 h-3 mt-0.5 flex-shrink-0" />
-              <span>
-                این پیش‌بینی بر اساس ویژگی‌های فعلی بازار (سرعت RSI، حجم، سشن) است و فرض می‌کند RSI همین الان به سطح می‌رسد.
-                وقتی واقعاً به سطح برسد و چند کندل در زون بماند، احتمالات می‌تواند متفاوت باشد.
-              </span>
-            </div>
-          </Card>
+        {/* ====== ALWAYS-SHOW: PREDICTION FOR LEVEL 60 ====== */}
+        {level60Pred && (
+          <PredictionCard
+            level={60}
+            prediction={level60Pred}
+            isActual={!level60Pred.isSimulation}
+            palette={PALETTE.level60}
+          />
         )}
 
         {/* ====== PATTERN DETECTION (M5) ====== */}
-        <Card className="border-slate-800 bg-slate-900/80 p-4">
+        <Card className="bg-white p-4 shadow-sm" style={{ borderColor: '#e7e5e4', borderWidth: 1 }}>
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-lg bg-blue-500/20 flex items-center justify-center">
-                <Activity className="w-4 h-4 text-blue-400" />
+              <div className="w-7 h-7 rounded-lg flex items-center justify-center"
+                   style={{ background: '#ede9fe' }}>
+                <Activity className="w-4 h-4" style={{ color: '#7c6fc4' }} />
               </div>
               <div>
-                <div className="text-sm font-bold">الگوی کندلی M5</div>
-                <div className="text-[10px] text-slate-400">آخرین کندل‌های ۵ دقیقه</div>
+                <div className="text-sm font-bold text-stone-800">الگوی کندلی M5</div>
+                <div className="text-[10px] text-stone-500">آخرین کندل‌های ۵ دقیقه</div>
               </div>
             </div>
-            <Badge className={`
-              ${data?.pattern?.bias === 'bullish' ? 'bg-green-500/90' :
-                data?.pattern?.bias === 'bearish' ? 'bg-red-500/90' :
-                'bg-slate-700 text-slate-300'}
-            `}>
+            <Badge style={{
+              background: data?.pattern?.bias === 'bullish' ? PALETTE.reversal.bgSoft :
+                          data?.pattern?.bias === 'bearish' ? PALETTE.passThrough.bgSoft :
+                          '#f5f5f4',
+              color: data?.pattern?.bias === 'bullish' ? PALETTE.reversal.text :
+                     data?.pattern?.bias === 'bearish' ? PALETTE.passThrough.text :
+                     '#78716c',
+              border: `1px solid ${
+                data?.pattern?.bias === 'bullish' ? PALETTE.reversal.border :
+                data?.pattern?.bias === 'bearish' ? PALETTE.passThrough.border :
+                '#e7e5e4'
+              }`,
+            }}>
               {data?.pattern?.labelFa ?? '...'}
             </Badge>
           </div>
 
-          {/* M5 candle visualization */}
           {data?.recentM5 && data.recentM5.length > 0 && (
             <div className="flex items-end gap-1 h-20 mb-2">
               {data.recentM5.map((c, i) => {
@@ -533,17 +495,14 @@ export default function Home() {
                 const bodyBot = ((Math.min(c.open, c.close) - min) / range) * 100;
                 return (
                   <div key={i} className="flex-1 relative" style={{ height: '100%' }}>
-                    {/* wick */}
-                    <div className="absolute left-1/2 -translate-x-1/2 w-px bg-slate-500"
+                    <div className="absolute left-1/2 -translate-x-1/2 w-px bg-stone-300"
                          style={{ bottom: `${100 - bodyTop - (bodyTop - bodyBot) - ((c.high - Math.max(c.open, c.close)) / range) * 100}%`, height: `${h}%` }} />
-                    {/* body */}
                     <div
-                      className={`absolute left-1/2 -translate-x-1/2 w-3 rounded-sm ${
-                        c.isUp ? 'bg-green-500' : 'bg-red-500'
-                      }`}
+                      className="absolute left-1/2 -translate-x-1/2 w-3 rounded-sm"
                       style={{
                         bottom: `${100 - bodyTop}%`,
                         height: `${Math.max(2, bodyTop - bodyBot)}%`,
+                        background: c.isUp ? PALETTE.reversal.bgBar : PALETTE.passThrough.bgBar,
                       }}
                     />
                   </div>
@@ -552,7 +511,7 @@ export default function Home() {
             </div>
           )}
 
-          <div className="text-[10px] text-slate-400 text-center">
+          <div className="text-[10px] text-stone-500 text-center">
             {data?.pattern?.bias === 'bullish' && 'الگوی صعودی — مناسب ورود خرید در سطح ۴۰'}
             {data?.pattern?.bias === 'bearish' && 'الگوی نزولی — مناسب ورود فروش در سطح ۶۰'}
             {data?.pattern?.bias === 'neutral' && 'الگوی خنثی — منتظر الگوی قطعی'}
@@ -561,28 +520,29 @@ export default function Home() {
 
         {/* ====== ENTRY TICKET ====== */}
         {data?.ticket && (
-          <Card className={`p-4 ${
-            data.ticket.valid
-              ? 'border-green-500/40 bg-gradient-to-br from-green-950/40 to-slate-900'
-              : 'border-slate-800 bg-slate-900/60'
-          }`}>
+          <Card className="p-4 shadow-sm"
+                style={{
+                  borderColor: data.ticket.valid ? PALETTE.reversal.border : '#e7e5e4',
+                  borderWidth: 1,
+                  background: data.ticket.valid ? `linear-gradient(180deg, ${PALETTE.reversal.bgSoft} 0%, #ffffff 60%)` : '#ffffff',
+                }}>
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
-                <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${
-                  data.ticket.valid ? 'bg-green-500/20' : 'bg-slate-700'
-                }`}>
-                  <Target className={`w-4 h-4 ${data.ticket.valid ? 'text-green-400' : 'text-slate-400'}`} />
+                <div className="w-7 h-7 rounded-lg flex items-center justify-center"
+                     style={{ background: data.ticket.valid ? PALETTE.reversal.bgSoft : '#f5f5f4' }}>
+                  <Target className="w-4 h-4"
+                          style={{ color: data.ticket.valid ? PALETTE.reversal.text : '#a8a29e' }} />
                 </div>
                 <div>
-                  <div className="text-sm font-bold">تیکت ورود</div>
-                  <div className="text-[10px] text-slate-400">با مدیریت ریسک</div>
+                  <div className="text-sm font-bold text-stone-800">تیکت ورود</div>
+                  <div className="text-[10px] text-stone-500">با مدیریت ریسک</div>
                 </div>
               </div>
               {data.ticket.valid && data.ticket.direction && (
-                <Badge className={`
-                  ${data.ticket.direction === 'BUY' ? 'bg-green-500 text-white' : 'bg-red-500 text-white'}
-                  text-xs px-3 py-1
-                `}>
+                <Badge className="text-xs px-3 py-1 text-white"
+                       style={{
+                         background: data.ticket.direction === 'BUY' ? PALETTE.reversal.text : PALETTE.passThrough.text,
+                       }}>
                   {data.ticket.directionFa}
                 </Badge>
               )}
@@ -597,35 +557,39 @@ export default function Home() {
                 </div>
 
                 <div className="flex items-center justify-between mb-2 text-xs">
-                  <span className="text-slate-400 flex items-center gap-1">
+                  <span className="text-stone-500 flex items-center gap-1">
                     <Shield className="w-3 h-3" />
                     نسبت ریسک/سود
                   </span>
-                  <span className="font-bold text-amber-300">
+                  <span className="font-bold" style={{ color: PALETTE.divergence.text }}>
                     1:{data.ticket.riskRewardRatio.toFixed(2)}
                   </span>
                 </div>
 
                 <div className="flex items-center justify-between mb-3 text-xs">
-                  <span className="text-slate-400 flex items-center gap-1">
+                  <span className="text-stone-500 flex items-center gap-1">
                     <Zap className="w-3 h-3" />
                     اطمینان
                   </span>
-                  <span className="font-bold text-amber-300">
+                  <span className="font-bold" style={{ color: PALETTE.divergence.text }}>
                     {(data.ticket.confidence * 100).toFixed(0)}٪
                   </span>
                 </div>
 
-                <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden mb-3">
-                  <div
-                    className="h-full bg-gradient-to-r from-amber-500 to-green-500"
-                    style={{ width: `${data.ticket.confidence * 100}%` }}
+                <div className="h-1.5 rounded-full overflow-hidden mb-3" style={{ background: '#e7e5e4' }}>
+                  <div className="h-full transition-all"
+                       style={{
+                         width: `${data.ticket.confidence * 100}%`,
+                         background: `linear-gradient(90deg, ${PALETTE.divergence.bgBar}, ${PALETTE.reversal.bgBar})`,
+                       }}
                   />
                 </div>
               </>
             ) : (
-              <div className="flex items-start gap-2 p-2 rounded-lg bg-slate-800/40 text-xs text-slate-400">
-                <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+              <div className="flex items-start gap-2 p-2 rounded-lg text-xs text-stone-600"
+                   style={{ background: '#f5f5f4' }}>
+                <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5"
+                               style={{ color: PALETTE.divergence.text }} />
                 <div>{data.ticket.notes[0]}</div>
               </div>
             )}
@@ -633,8 +597,8 @@ export default function Home() {
             {data.ticket.notes.length > 0 && (
               <div className="space-y-1 mt-2">
                 {data.ticket.notes.slice(data.ticket.valid ? 0 : 1).map((n, i) => (
-                  <div key={i} className="text-[10px] text-slate-400 flex items-start gap-1">
-                    <span className="text-blue-400">→</span>
+                  <div key={i} className="text-[10px] text-stone-500 flex items-start gap-1">
+                    <span style={{ color: PALETTE.level40.text }}>→</span>
                     <span>{n}</span>
                   </div>
                 ))}
@@ -644,11 +608,8 @@ export default function Home() {
         )}
 
         {/* ====== EXPAND BUTTON ====== */}
-        <Button
-          variant="ghost"
-          onClick={() => setExpanded(!expanded)}
-          className="w-full text-slate-400 hover:text-amber-400 text-xs"
-        >
+        <Button variant="ghost" onClick={() => setExpanded(!expanded)}
+                className="w-full text-stone-500 hover:text-stone-800 text-xs">
           {expanded ? (
             <><ChevronUp className="w-4 h-4 ml-1" /> بستن جزئیات</>
           ) : (
@@ -659,10 +620,9 @@ export default function Home() {
         {/* ====== EXPANDED DETAILS ====== */}
         {expanded && data && (
           <div className="space-y-3">
-            {/* Features */}
             {data.features && (
-              <Card className="border-slate-800 bg-slate-900/80 p-4">
-                <div className="text-sm font-bold mb-3">ویژگی‌های فعلی بازار</div>
+              <Card className="bg-white p-4 shadow-sm" style={{ borderColor: '#e7e5e4', borderWidth: 1 }}>
+                <div className="text-sm font-bold mb-3 text-stone-800">ویژگی‌های فعلی بازار</div>
                 <div className="grid grid-cols-2 gap-3 text-xs">
                   <FeatureItem label="RSI" value={data.features.rsi.toFixed(2)} />
                   <FeatureItem label="کندل در زون" value={String(data.features.candlesInZone)} />
@@ -676,69 +636,45 @@ export default function Home() {
               </Card>
             )}
 
-            {/* Mini chart */}
-            <Card className="border-slate-800 bg-slate-900/80 p-4">
-              <div className="text-sm font-bold mb-3">نمودار قیمت و RSI (۲۴ ساعت اخیر)</div>
+            <Card className="bg-white p-4 shadow-sm" style={{ borderColor: '#e7e5e4', borderWidth: 1 }}>
+              <div className="text-sm font-bold mb-3 text-stone-800">نمودار قیمت و RSI (۲۴ ساعت اخیر)</div>
               <MiniChart candles={data.recentCandles} />
             </Card>
 
-            {/* Info */}
-            <Card className="border-slate-800 bg-slate-900/60 p-4">
-              <div className="text-sm font-bold mb-2">درباره این ویجت</div>
-              <div className="text-[11px] text-slate-400 leading-relaxed space-y-2">
+            <Card className="bg-white p-4 shadow-sm" style={{ borderColor: '#e7e5e4', borderWidth: 1 }}>
+              <div className="text-sm font-bold mb-2 text-stone-800">درباره این ویجت</div>
+              <div className="text-[11px] text-stone-600 leading-relaxed space-y-2">
                 <p>
                   این ویجت RSI(30) را روی تایم‌فریم M30 طلا پایش می‌کند. منابع داده:
                 </p>
                 <ul className="space-y-1 list-disc pr-4">
-                  <li>
-                    <strong className="text-slate-200">قیمت لحظه‌ای:</strong> TradingView TVC:GOLD (طلای اسپات) —
-                    نزدیک‌ترین منبع رایگان به XAUUSD بروکر شما (معمولاً $۱-۵ اختلاف)
-                  </li>
-                  <li>
-                    <strong className="text-slate-200">کندل‌های تاریخی M30:</strong> Yahoo Finance GC=F (طلای آتی COMEX) —
-                    برای محاسبه RSI
-                  </li>
-                  <li>
-                    <strong className="text-slate-200">Fallback:</strong> Binance PAXG/USDT در صورت در دسترس نبودن Yahoo
-                  </li>
+                  <li><strong className="text-stone-800">قیمت لحظه‌ای:</strong> TradingView TVC:GOLD (طلای اسپات)</li>
+                  <li><strong className="text-stone-800">کندل‌های تاریخی M30:</strong> Yahoo Finance GC=F (طلای آتی COMEX)</li>
+                  <li><strong className="text-stone-800">Fallback:</strong> Binance PAXG/USDT</li>
                 </ul>
                 <p>
-                  بازار طلای اسپات (XAUUSD) از یکشنبه ۲۳:۰۰ تا جمعه ۲۲:۰۰ UTC باز است و در شنبه تعطیل است.
-                  در زمان تعطیلی، آخرین قیمت جمعه نمایش داده می‌شود.
+                  بازار طلای اسپات از یکشنبه ۲۳:۰۰ تا جمعه ۲۲:۰۰ UTC باز است و در شنبه تعطیل است.
                 </p>
                 <p>
-                  <strong>چرا RSI با بروکر شما کمی متفاوت است؟</strong> RSI روی داده تاریخی GC=F محاسبه می‌شود
-                  (نه XAUUSD اسپات بروکر شما). دلایل اختلاف باقی‌مانده:
-                  (۱) GC=F آتی است، XAUUSD اسپات است؛
-                  (۲) زمان سرور بروکر شما معمولاً GMT+2 یا GMT+3 است و مرز کندل‌ها متفاوت است؛
-                  (۳) هر بروکر دیتا فید اختصاصی خودش را دارد.
-                </p>
-                <p>
-                  وقتی RSI وارد زون شد، بر اساس آمار ۲ سال گذشته (۱۳۲۸ رویداد)، احتمال هر یک از سه حالت
-                  (برگشت، واگرایی، گذشتن) را پیش‌بینی می‌کند. قوی‌ترین پیش‌بینی‌کننده، تعداد کندل‌هایی است که
-                  RSI در زون می‌ماند.
-                </p>
-                <p>
-                  همزمان کندل‌های M5 را بررسی می‌کند و در صورت تشکیل الگوی تأییدیه (دوجی، پین بار، همر، اینگالف)
-                  و هم‌جهت بودن با سطح، تیکت ورود با حد ضرر و حد سود تولید می‌کند.
+                  <strong className="text-stone-800">پیش‌بینی‌ها:</strong> همیشه برای هر دو سطح ۴۰ و ۶۰ نشان داده می‌شوند.
+                  اگر RSI داخل زون باشد، پیش‌بینی واقعی است؛ در غیر این صورت، پیش‌بینی فرضی است
+                  (اگر الان به سطح برسد چه می‌شود).
                 </p>
               </div>
             </Card>
           </div>
         )}
 
-        {/* Error */}
         {error && (
-          <Card className="border-red-500/40 bg-red-950/40 p-3">
-            <div className="text-xs text-red-300 flex items-center gap-2">
+          <Card className="p-3 shadow-sm" style={{ borderColor: PALETTE.passThrough.border, background: PALETTE.passThrough.bgSoft }}>
+            <div className="text-xs flex items-center gap-2" style={{ color: PALETTE.passThrough.text }}>
               <AlertTriangle className="w-4 h-4" />
               {error}
             </div>
           </Card>
         )}
 
-        {/* Footer */}
-        <div className="text-center text-[10px] text-slate-600 pt-4">
+        <div className="text-center text-[10px] text-stone-400 pt-4">
           داده زنده از Binance · به‌روزرسانی هر ۳۰ ثانیه<br/>
           این ابزار سیگنال معاملاتی قطعی نیست — با مدیریت ریسک معامله کنید
         </div>
@@ -747,20 +683,111 @@ export default function Home() {
   );
 }
 
-function ProbBar({ label, value, color, icon }: {
-  label: string; value: number; color: string; icon: React.ReactNode;
+// =====================================================
+// Prediction Card component — used for both levels
+// =====================================================
+function PredictionCard({ level, prediction, isActual, palette } : {
+  level: 40 | 60;
+  prediction: ApproachPrediction;
+  isActual: boolean;
+  palette: { text: string; bgSoft: string; border: string };
+}) {
+  return (
+    <Card className="p-4 shadow-sm"
+          style={{
+            borderColor: palette.border,
+            borderWidth: 1,
+            background: `linear-gradient(180deg, ${palette.bgSoft} 0%, #ffffff 70%)`,
+          }}>
+      <div className="flex items-center gap-2 mb-3">
+        <div className="w-7 h-7 rounded-lg flex items-center justify-center"
+             style={{ background: palette.bgSoft }}>
+          <Zap className="w-4 h-4" style={{ color: palette.text }} />
+        </div>
+        <div className="flex-1">
+          <div className="text-sm font-bold text-stone-800">
+            {isActual
+              ? `پیش‌بینی واکنش بازار — سطح ${level}`
+              : `پیش‌بینی فرضی — سطح ${level}`}
+          </div>
+          <div className="text-[10px] text-stone-500">
+            {isActual
+              ? 'بر اساس آمار ۲ سال گذشته (۱۳۲۸ رویداد)'
+              : `اگر RSI به سطح ${level} برسد`}
+          </div>
+        </div>
+        <Badge variant="outline" className="text-[10px]"
+               style={{ borderColor: palette.border, color: palette.text }}>
+          محتمل: {prediction.topFa}
+        </Badge>
+      </div>
+
+      {/* Distance indicator (only for simulations) */}
+      {!isActual && (
+        <div className="mb-3 p-2 rounded-lg" style={{ background: palette.bgSoft, border: `1px solid ${palette.border}` }}>
+          <div className="flex items-center justify-between text-[10px]">
+            <span className="flex items-center gap-1" style={{ color: palette.text }}>
+              <Target className="w-3 h-3" />
+              RSI فعلی: {prediction.currentRsi.toFixed(2)}
+            </span>
+            <span className="font-bold" style={{ color: palette.text }}>
+              {prediction.distanceToLevel.toFixed(2)} واحد تا سطح {level}
+            </span>
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-2">
+        <ProbBar label="برگشت (تک‌برخورد)" value={prediction.reversal} palette={PALETTE.reversal}
+                 icon={<TrendingUp className="w-3 h-3" />} />
+        <ProbBar label="واگرایی" value={prediction.divergence} palette={PALETTE.divergence}
+                 icon={<Activity className="w-3 h-3" />} />
+        <ProbBar label="گذشتن از سطح" value={prediction.passThrough} palette={PALETTE.passThrough}
+                 icon={<TrendingDown className="w-3 h-3" />} />
+      </div>
+
+      <Separator className="my-3" style={{ background: '#e7e5e4' }} />
+
+      <div className="space-y-1">
+        <div className="text-[10px] font-bold text-stone-500 mb-1">دلایل پیش‌بینی:</div>
+        {prediction.reasons.map((r, i) => (
+          <div key={i} className="text-[11px] text-stone-700 flex items-start gap-1.5">
+            <span className="mt-0.5" style={{ color: palette.text }}>•</span>
+            <span>{r}</span>
+          </div>
+        ))}
+      </div>
+
+      {!isActual && (
+        <div className="mt-3 p-2 rounded text-[10px] flex items-start gap-1.5"
+             style={{ background: palette.bgSoft, color: palette.text }}>
+          <AlertTriangle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+          <span>
+            این پیش‌بینی فرضی است و فرض می‌کند RSI همین الان به سطح می‌رسد. وقتی واقعاً به سطح برسد
+            و چند کندل در زون بماند، احتمالات می‌تواند متفاوت باشد.
+          </span>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function ProbBar({ label, value, palette, icon }: {
+  label: string; value: number;
+  palette: { text: string; bgBar: string };
+  icon: React.ReactNode;
 }) {
   return (
     <div>
       <div className="flex items-center justify-between text-[11px] mb-1">
-        <span className="text-slate-300 flex items-center gap-1.5">
+        <span className="text-stone-700 flex items-center gap-1.5">
           {icon}
           {label}
         </span>
-        <span className="font-bold text-slate-100 tabular-nums">{(value * 100).toFixed(0)}٪</span>
+        <span className="font-bold text-stone-800 tabular-nums">{(value * 100).toFixed(0)}٪</span>
       </div>
-      <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
-        <div className={`h-full ${color} transition-all`} style={{ width: `${value * 100}%` }} />
+      <div className="h-2 rounded-full overflow-hidden" style={{ background: '#e7e5e4' }}>
+        <div className="h-full transition-all" style={{ width: `${value * 100}%`, background: palette.bgBar }} />
       </div>
     </div>
   );
@@ -769,31 +796,31 @@ function ProbBar({ label, value, color, icon }: {
 function TicketBox({ label, value, tone }: {
   label: string; value: string; tone?: 'red' | 'green';
 }) {
+  const palette = tone === 'red' ? PALETTE.passThrough : tone === 'green' ? PALETTE.reversal : null;
   return (
-    <div className={`p-2 rounded-lg border ${
-      tone === 'red' ? 'bg-red-500/10 border-red-500/30' :
-      tone === 'green' ? 'bg-green-500/10 border-green-500/30' :
-      'bg-slate-800/60 border-slate-700/50'
-    }`}>
-      <div className="text-[9px] text-slate-400 mb-0.5">{label}</div>
-      <div className={`text-xs font-bold tabular-nums ${
-        tone === 'red' ? 'text-red-300' : tone === 'green' ? 'text-green-300' : 'text-slate-100'
-      }`}>{value}</div>
+    <div className="p-2 rounded-lg"
+         style={{
+           background: palette ? palette.bgSoft : '#f5f5f4',
+           border: `1px solid ${palette ? palette.border : '#e7e5e4'}`,
+         }}>
+      <div className="text-[9px] text-stone-500 mb-0.5">{label}</div>
+      <div className="text-xs font-bold tabular-nums"
+           style={{ color: palette ? palette.text : '#292524' }}>{value}</div>
     </div>
   );
 }
 
 function FeatureItem({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between p-2 rounded bg-slate-800/40">
-      <span className="text-slate-400">{label}</span>
-      <span className="font-bold text-slate-100 tabular-nums">{value}</span>
+    <div className="flex items-center justify-between p-2 rounded" style={{ background: '#f5f5f4' }}>
+      <span className="text-stone-500">{label}</span>
+      <span className="font-bold text-stone-800 tabular-nums">{value}</span>
     </div>
   );
 }
 
 function MiniChart({ candles }: { candles: any[] }) {
-  if (!candles || candles.length === 0) return <div className="text-xs text-slate-500">داده‌ای موجود نیست</div>;
+  if (!candles || candles.length === 0) return <div className="text-xs text-stone-500">داده‌ای موجود نیست</div>;
 
   const prices = candles.map(c => c.close);
   const rsis = candles.map(c => c.rsi).filter((r): r is number => r !== null);
@@ -801,7 +828,6 @@ function MiniChart({ candles }: { candles: any[] }) {
   const maxP = Math.max(...prices);
   const rangeP = maxP - minP || 1;
 
-  // Build SVG path for price
   const w = 320;
   const hPrice = 80;
   const hRsi = 40;
@@ -819,27 +845,25 @@ function MiniChart({ candles }: { candles: any[] }) {
     return `${i === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`;
   }).join(' ') : '';
 
-  // Zone shading on RSI
   return (
     <div className="space-y-1">
       <svg viewBox={`0 0 ${w} ${hPrice + hRsi + 10}`} className="w-full" preserveAspectRatio="none">
-        {/* Price chart */}
-        <path d={pricePath} stroke="#fbbf24" strokeWidth="1.5" fill="none" />
-
-        {/* RSI chart */}
+        <path d={pricePath} stroke={PALETTE.level60.text} strokeWidth="1.5" fill="none" />
         <g transform={`translate(0, ${hPrice + 10})`}>
-          {/* Zones */}
-          <rect x="0" y={hRsi - (60 / 100) * hRsi} width={w} height={(2 / 100) * hRsi} fill="#ef4444" opacity="0.3" />
-          <rect x="0" y={hRsi - (40 / 100) * hRsi} width={w} height={(2 / 100) * hRsi} fill="#22c55e" opacity="0.3" />
-          {/* Lines */}
-          <line x1="0" y1={hRsi - (60 / 100) * hRsi} x2={w} y2={hRsi - (60 / 100) * hRsi} stroke="#ef4444" strokeWidth="0.3" strokeDasharray="2,2" />
-          <line x1="0" y1={hRsi - (40 / 100) * hRsi} x2={w} y2={hRsi - (40 / 100) * hRsi} stroke="#22c55e" strokeWidth="0.3" strokeDasharray="2,2" />
-          {rsiPath && <path d={rsiPath} stroke="#3b82f6" strokeWidth="1.2" fill="none" />}
+          <rect x="0" y={hRsi - (60 / 100) * hRsi} width={w} height={(2 / 100) * hRsi}
+                fill={PALETTE.level60.bgBar} opacity="0.4" />
+          <rect x="0" y={hRsi - (40 / 100) * hRsi} width={w} height={(2 / 100) * hRsi}
+                fill={PALETTE.level40.bgBar} opacity="0.4" />
+          <line x1="0" y1={hRsi - (60 / 100) * hRsi} x2={w} y2={hRsi - (60 / 100) * hRsi}
+                stroke={PALETTE.level60.text} strokeWidth="0.3" strokeDasharray="2,2" opacity="0.5" />
+          <line x1="0" y1={hRsi - (40 / 100) * hRsi} x2={w} y2={hRsi - (40 / 100) * hRsi}
+                stroke={PALETTE.level40.text} strokeWidth="0.3" strokeDasharray="2,2" opacity="0.5" />
+          {rsiPath && <path d={rsiPath} stroke={PALETTE.level40.text} strokeWidth="1.2" fill="none" />}
         </g>
       </svg>
-      <div className="flex justify-between text-[9px] text-slate-500">
+      <div className="flex justify-between text-[9px] text-stone-400">
         <span>{new Date(candles[0].time).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' })}</span>
-        <span>قیمت (زرد) + RSI (آبی)</span>
+        <span>قیمت (بالایی) + RSI (پایینی)</span>
         <span>{new Date(candles[candles.length - 1].time).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' })}</span>
       </div>
     </div>

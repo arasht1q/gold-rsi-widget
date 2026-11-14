@@ -209,29 +209,44 @@ export async function GET() {
   const features = extractFeatures(candles30m, rsi, sma50);
   const prediction = features ? predict(features) : null;
 
-  // Pre-touch prediction: if not in zone but within 10 units of 40 or 60,
-  // simulate what would happen if RSI touched the nearest level
-  let approachPrediction: any = null;
-  let approachLevel: 40 | 60 | null = null;
-  if (features && !features.inZone) {
-    const dist40 = Math.abs(features.rsi - 40);
-    const dist60 = Math.abs(features.rsi - 60);
-    const nearestLevelNum = dist40 < dist60 ? 40 : 60;
-    const nearestDistVal = Math.min(dist40, dist60);
-    // Show approach prediction if within 10 units
-    if (nearestDistVal <= 10) {
-      approachLevel = nearestLevelNum as 40 | 60;
-      const ap = predictApproaching(features, approachLevel);
-      approachPrediction = {
+  // Always compute approach/simulation predictions for BOTH levels
+  // (so user always sees the probabilities for what would happen at 40 and 60)
+  let approach40: any = null;
+  let approach60: any = null;
+  if (features) {
+    // For level 40: if RSI is in zone 40, this is the actual prediction; otherwise simulation
+    if (features.inZone && features.zoneLevel === 40) {
+      // actual already in `prediction`
+    } else {
+      const ap = predictApproaching(features, 40);
+      approach40 = {
         reversal: ap.reversal,
         divergence: ap.divergence,
         passThrough: ap.passThrough,
         topCategory: ap.topCategory,
         topFa: ap.topFa,
         reasons: ap.reasons,
-        targetLevel: approachLevel,
+        targetLevel: 40,
         currentRsi: features.rsi,
-        distanceToLevel: nearestDistVal,
+        distanceToLevel: Math.abs(features.rsi - 40),
+        isSimulation: true,
+      };
+    }
+    // Same for level 60
+    if (features.inZone && features.zoneLevel === 60) {
+      // actual already in `prediction`
+    } else {
+      const ap = predictApproaching(features, 60);
+      approach60 = {
+        reversal: ap.reversal,
+        divergence: ap.divergence,
+        passThrough: ap.passThrough,
+        topCategory: ap.topCategory,
+        topFa: ap.topFa,
+        reasons: ap.reasons,
+        targetLevel: 60,
+        currentRsi: features.rsi,
+        distanceToLevel: Math.abs(features.rsi - 60),
         isSimulation: true,
       };
     }
@@ -351,7 +366,8 @@ export async function GET() {
       topFa: prediction.topFa,
       reasons: prediction.reasons,
     } : null,
-    approachPrediction,
+    approach40,
+    approach60,
     pattern: {
       pattern: pattern.pattern,
       label: pattern.label,
