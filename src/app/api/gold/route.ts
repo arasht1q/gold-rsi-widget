@@ -12,17 +12,75 @@ import {
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-// Yahoo Finance chart endpoints — free, no API key needed
-// GC=F = Gold Futures (COMEX) — tracks XAUUSD spot very closely during market hours
+// TradingView scanner — gives live price + today's OHLC for TVC:GOLD (spot gold)
+const TV_SCANNER = 'https://scanner.tradingview.com/symbol?symbol=TVC%3AGOLD&fields=close,change,change_abs,name,description,high,low,open,volume,type,currency_code';
+// Yahoo Finance — historical M30 candles for GC=F (gold futures, for RSI calc)
 const YAHOO_GC_M30 = 'https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=30m&range=10d';
 const YAHOO_GC_M5  = 'https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=5m&range=1d';
-// Fallback: Binance PAXG/USDT (24/7 market — used when Yahoo is down or market closed)
+// Fallback
 const BINANCE_PAXG_M30 = 'https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval=30m&limit=300';
 const BINANCE_PAXG_M5  = 'https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval=5m&limit=20';
 
-type RawKline = [
-  number, string, string, string, string, string, number, string, number, string, string, string
-];
+type RawKline = [number, string, string, string, string, string, number, string, number, string, string, string];
+
+type TVQuote = {
+  close: number;
+  change: number | null;
+  change_abs: number | null;
+  name: string;
+  description: string;
+  high: number;
+  low: number;
+  open: number;
+  volume: number;
+  type: string;
+  currency_code: string;
+};
+
+async function fetchTradingView(): Promise<TVQuote | null> {
+  // Retry up to 3 times to handle 429 rate limiting
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch(TV_SCANNER, {
+        cache: 'no-store',
+        headers: {
+          'User-Agent': 'Mozilla/5.0',
+          'Origin': 'https://www.tradingview.com',
+          'Referer': 'https://www.tradingview.com/',
+        },
+      });
+      if (res.status === 429) {
+        await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
+        continue;
+      }
+      if (!res.ok) return null;
+      const d = (await res.json()) as Partial<TVQuote>;
+      if (d && typeof d.close === 'number') {
+        return {
+          close: d.close,
+          change: d.change ?? null,
+          change_abs: d.change_abs ?? null,
+          name: d.name ?? 'GOLD',
+          description: d.description ?? 'Gold',
+          high: d.high ?? d.close,
+          low: d.low ?? d.close,
+          open: d.open ?? d.close,
+          volume: d.volume ?? 0,
+          type: d.type ?? 'spot',
+          currency_code: d.currency_code ?? 'USD',
+        };
+      }
+      return null;
+    } catch {
+      if (attempt < 2) {
+        await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
+        continue;
+      }
+      return null;
+    }
+  }
+  return null;
+}
 
 async function fetchBinance(url: string): Promise<Candle[]> {
   const res = await fetch(url, { cache: 'no-store' });
@@ -51,11 +109,7 @@ type YahooChart = {
           volume: (number | null)[];
         }>;
       };
-      meta?: {
-        regularMarketPrice?: number;
-        chartPreviousClose?: number;
-        symbol?: string;
-      };
+      meta?: { regularMarketPrice?: number; chartPreviousClose?: number; symbol?: string };
     }>;
     error?: any;
   };
@@ -91,12 +145,19 @@ async function fetchYahoo(url: string): Promise<{ candles: Candle[]; marketPrice
 }
 
 export async function GET() {
-  let source = 'GC=F (Yahoo Finance)';
+  let priceSource = 'TradingView TVC:GOLD';
+  let candleSource = 'Yahoo GC=F (historical)';
+  let tvQuote: TVQuote | null = null;
   let candles30m: Candle[] = [];
   let candles5m: Candle[] = [];
-  let marketPrice: number | null = null;
 
-  // Try GC=F first
+  // 1. Always try TradingView first for live price
+  tvQuote = await fetchTradingView();
+  if (!tvQuote) {
+    priceSource = 'Yahoo GC=F (TV unavailable)';
+  }
+
+  // 2. Get historical candles from Yahoo for RSI computation
   try {
     const [m30, m5] = await Promise.all([
       fetchYahoo(YAHOO_GC_M30),
@@ -104,10 +165,8 @@ export async function GET() {
     ]);
     candles30m = m30.candles;
     candles5m = m5.candles;
-    marketPrice = m30.marketPrice;
-  } catch (e) {
-    // Fallback to Binance PAXG
-    source = 'PAXG/USDT (Binance) — fallback';
+  } catch {
+    candleSource = 'Binance PAXG (Yahoo unavailable)';
     try {
       const [m30, m5] = await Promise.all([
         fetchBinance(BINANCE_PAXG_M30),
@@ -116,18 +175,31 @@ export async function GET() {
       candles30m = m30;
       candles5m = m5;
     } catch (e2: any) {
-      return NextResponse.json({ ok: false, error: `Both sources failed: ${e2?.message}` }, { status: 500 });
+      return NextResponse.json({ ok: false, error: `All sources failed: ${e2?.message}` }, { status: 500 });
     }
   }
 
   if (candles30m.length < 200) {
-    return NextResponse.json({
-      ok: false,
-      error: `Insufficient candles: ${candles30m.length}`,
-      source,
-    }, { status: 500 });
+    return NextResponse.json({ ok: false, error: `Insufficient candles: ${candles30m.length}` }, { status: 500 });
   }
 
+  // 3. If we have TradingView live price, override the last candle's close with it
+  // This ensures RSI is computed on data ending at the live (broker-accurate) price
+  if (tvQuote && candles30m.length > 0) {
+    const lastIdx = candles30m.length - 1;
+    const tvLive = tvQuote.close;
+    const oldClose = candles30m[lastIdx].close;
+    // Adjust last candle: use TradingView price as the new close
+    // Also adjust high/low to include the new price
+    candles30m[lastIdx] = {
+      ...candles30m[lastIdx],
+      close: tvLive,
+      high: Math.max(candles30m[lastIdx].high, tvLive),
+      low: Math.min(candles30m[lastIdx].low, tvLive),
+    };
+  }
+
+  // Compute RSI on (possibly adjusted) candle data
   const closes = candles30m.map(c => c.close);
   const rsi = calcRSI(closes, 30);
   const sma50 = calcSMA(closes, 50);
@@ -140,12 +212,16 @@ export async function GET() {
 
   const lastCandle = candles30m[candles30m.length - 1];
   const lastRsi = rsi[rsi.length - 1];
-  const lastPrice = marketPrice ?? lastCandle.close;
+  // Prefer TradingView live price; fall back to last candle close
+  const lastPrice = tvQuote?.close ?? lastCandle.close;
 
   // Detect if market is currently closed (no recent candle in last 2 hours)
   const now = Date.now();
   const lastCandleAgeMin = (now - lastCandle.openTime) / 60000;
-  const marketOpen = lastCandleAgeMin < 120; // last candle within 2 hours
+  // TradingView's "change" tells us if today's session is current; if change is 0 and last candle is old, market is closed
+  const marketOpen = lastCandleAgeMin < 120 && (tvQuote?.change ?? 0) !== 0
+    ? true
+    : lastCandleAgeMin < 30; // very recent candle
 
   const distTo60 = Math.abs(lastRsi - 60);
   const distTo40 = Math.abs(lastRsi - 40);
@@ -154,7 +230,7 @@ export async function GET() {
   const proximity = Math.max(0, 1 - nearestDist / 10);
 
   let status = 'NORMAL';
-  let statusFa = marketOpen ? 'عادی' : 'بازار بسته — آخرین قیمت جمعه';
+  let statusFa = marketOpen ? 'عادی' : 'بازار بسته — آخرین قیمت';
   if (!marketOpen) {
     status = 'CLOSED';
     if (features?.inZone) {
@@ -193,14 +269,27 @@ export async function GET() {
 
   return NextResponse.json({
     ok: true,
-    source,
-    sourceDescription: source.startsWith('GC=F')
-      ? 'Yahoo Finance GC=F (Gold Futures COMEX) — نزدیک‌ترین منبع رایگان به XAUUSD اسپات'
-      : 'Binance PAXG/USDT (fallback) — توکن طلای بinance که ۲۴/۷ معامله می‌شود',
+    priceSource,
+    candleSource,
+    priceSourceDescription: tvQuote
+      ? `TradingView TVC:GOLD (طلای اسپات) — تطبیق بسیار نزدیک با XAUUSD بروکر شما`
+      : 'Yahoo GC=F (fallback)',
     marketOpen,
     timestamp: Date.now(),
     lastPrice,
-    lastPriceSource: marketPrice !== null ? 'live ticker' : 'last candle close',
+    lastPriceSource: tvQuote ? 'TradingView live ticker' : 'last candle close',
+    tvQuote: tvQuote ? {
+      name: tvQuote.name,
+      description: tvQuote.description,
+      close: tvQuote.close,
+      change: tvQuote.change,
+      change_abs: tvQuote.change_abs,
+      open: tvQuote.open,
+      high: tvQuote.high,
+      low: tvQuote.low,
+      type: tvQuote.type,
+      currency: tvQuote.currency_code,
+    } : null,
     lastCandleTime: lastCandle.openTime,
     lastCandleAgeMin: Math.round(lastCandleAgeMin),
     lastRsi,

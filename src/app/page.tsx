@@ -25,12 +25,25 @@ import { InstallGuide } from '@/components/install-guide';
 
 type ApiResponse = {
   ok: boolean;
-  source: string;
-  sourceDescription: string;
+  priceSource: string;
+  candleSource: string;
+  priceSourceDescription: string;
   marketOpen: boolean;
   timestamp: number;
   lastPrice: number;
   lastPriceSource: string;
+  tvQuote: {
+    name: string;
+    description: string;
+    close: number;
+    change: number | null;
+    change_abs: number | null;
+    open: number;
+    high: number;
+    low: number;
+    type: string;
+    currency: string;
+  } | null;
   lastCandleTime: number;
   lastCandleAgeMin: number;
   lastRsi: number;
@@ -221,21 +234,52 @@ export default function Home() {
             </div>
 
             {/* Source badge */}
-            {data?.source && (
-              <div className="flex items-center justify-between mb-2 text-[9px]">
-                <Badge variant="outline" className={`text-[9px] py-0 px-1.5 ${
-                  data.marketOpen
-                    ? 'border-green-500/40 text-green-300'
-                    : 'border-slate-600 text-slate-400'
-                }`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ml-1 ${
-                    data.marketOpen ? 'bg-green-400 animate-pulse' : 'bg-slate-500'
-                  }`} />
-                  {data.marketOpen ? 'بازار باز' : 'بازار بسته'}
-                </Badge>
-                <span className="text-slate-500" title={data.sourceDescription}>
-                  منبع: {data.source.startsWith('GC=F') ? 'Yahoo GC=F (طلای آتی)' : 'Binance PAXG'}
-                </span>
+            {data?.priceSource && (
+              <div className="space-y-1 mb-2">
+                <div className="flex items-center justify-between text-[9px]">
+                  <Badge variant="outline" className={`text-[9px] py-0 px-1.5 ${
+                    data.marketOpen
+                      ? 'border-green-500/40 text-green-300'
+                      : 'border-slate-600 text-slate-400'
+                  }`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ml-1 ${
+                      data.marketOpen ? 'bg-green-400 animate-pulse' : 'bg-slate-500'
+                    }`} />
+                    {data.marketOpen ? 'بازار باز' : 'بازار بسته'}
+                  </Badge>
+                  <span className="text-slate-500" title={data.priceSourceDescription}>
+                    قیمت: {data.tvQuote ? 'TradingView TVC:GOLD' : data.priceSource.startsWith('GC=F') ? 'Yahoo GC=F' : 'Binance PAXG'}
+                  </span>
+                </div>
+                {/* Today's OHLC from TradingView */}
+                {data?.tvQuote && (
+                  <div className="grid grid-cols-4 gap-1 text-[9px] mt-1">
+                    <div className="bg-slate-800/40 rounded p-1 text-center">
+                      <div className="text-slate-500">Open</div>
+                      <div className="font-bold text-slate-200 tabular-nums">{data.tvQuote.open.toFixed(2)}</div>
+                    </div>
+                    <div className="bg-slate-800/40 rounded p-1 text-center">
+                      <div className="text-slate-500">High</div>
+                      <div className="font-bold text-green-300 tabular-nums">{data.tvQuote.high.toFixed(2)}</div>
+                    </div>
+                    <div className="bg-slate-800/40 rounded p-1 text-center">
+                      <div className="text-slate-500">Low</div>
+                      <div className="font-bold text-red-300 tabular-nums">{data.tvQuote.low.toFixed(2)}</div>
+                    </div>
+                    <div className={`bg-slate-800/40 rounded p-1 text-center ${
+                      (data.tvQuote.change ?? 0) >= 0 ? 'text-green-300' : 'text-red-300'
+                    }`}>
+                      <div className="text-slate-500">Change</div>
+                      <div className="font-bold tabular-nums">
+                        {(data.tvQuote.change ?? 0) >= 0 ? '+' : ''}{(data.tvQuote.change ?? 0).toFixed(2)}%
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <div className="flex items-center justify-between text-[9px] text-slate-500 pt-0.5">
+                  <span>RSI محاسبه‌شده از: </span>
+                  <span>{data.candleSource || 'Yahoo GC=F'}</span>
+                </div>
               </div>
             )}
 
@@ -559,21 +603,31 @@ export default function Home() {
               <div className="text-sm font-bold mb-2">درباره این ویجت</div>
               <div className="text-[11px] text-slate-400 leading-relaxed space-y-2">
                 <p>
-                  این ویجت RSI(30) را روی تایم‌فریم M30 طلا پایش می‌کند. منبع داده
-                  <strong> Yahoo Finance GC=F (طلای آتی COMEX)</strong> است که نزدیک‌ترین منبع
-                  رایگان به XAUUSD اسپات است. در صورت در دسترس نبودن Yahoo، به‌صورت fallback
-                  از Binance PAXG استفاده می‌کند.
+                  این ویجت RSI(30) را روی تایم‌فریم M30 طلا پایش می‌کند. منابع داده:
                 </p>
+                <ul className="space-y-1 list-disc pr-4">
+                  <li>
+                    <strong className="text-slate-200">قیمت لحظه‌ای:</strong> TradingView TVC:GOLD (طلای اسپات) —
+                    نزدیک‌ترین منبع رایگان به XAUUSD بروکر شما (معمولاً $۱-۵ اختلاف)
+                  </li>
+                  <li>
+                    <strong className="text-slate-200">کندل‌های تاریخی M30:</strong> Yahoo Finance GC=F (طلای آتی COMEX) —
+                    برای محاسبه RSI
+                  </li>
+                  <li>
+                    <strong className="text-slate-200">Fallback:</strong> Binance PAXG/USDT در صورت در دسترس نبودن Yahoo
+                  </li>
+                </ul>
                 <p>
                   بازار طلای اسپات (XAUUSD) از یکشنبه ۲۳:۰۰ تا جمعه ۲۲:۰۰ UTC باز است و در شنبه تعطیل است.
                   در زمان تعطیلی، آخرین قیمت جمعه نمایش داده می‌شود.
                 </p>
                 <p>
-                  <strong>توجه درباره تفاوت با بروکر شما:</strong> هر بروکر دیتا فید اختصاصی خود را دارد.
-                  ممکن است بین قیمت/RSI این ویجت و بروکر شما تفاوت‌های جزئی ($۱-۱۰ در قیمت، ۲-۱۰ واحد در RSI)
-                  وجود داشته باشد. دلایل اصلی: (۱) GC=F آتی است ولی بروکر XAUUSD اسپات نشان می‌دهد؛
-                  (۲) زمان سرور بروکر معمولاً GMT+2/GMT+3 است و مرز کندل‌ها متفاوت است؛
-                  (۳) Bid vs Mid price.
+                  <strong>چرا RSI با بروکر شما کمی متفاوت است؟</strong> RSI روی داده تاریخی GC=F محاسبه می‌شود
+                  (نه XAUUSD اسپات بروکر شما). دلایل اختلاف باقی‌مانده:
+                  (۱) GC=F آتی است، XAUUSD اسپات است؛
+                  (۲) زمان سرور بروکر شما معمولاً GMT+2 یا GMT+3 است و مرز کندل‌ها متفاوت است؛
+                  (۳) هر بروکر دیتا فید اختصاصی خودش را دارد.
                 </p>
                 <p>
                   وقتی RSI وارد زون شد، بر اساس آمار ۲ سال گذشته (۱۳۲۸ رویداد)، احتمال هر یک از سه حالت
@@ -583,11 +637,6 @@ export default function Home() {
                 <p>
                   همزمان کندل‌های M5 را بررسی می‌کند و در صورت تشکیل الگوی تأییدیه (دوجی، پین بار، همر، اینگالف)
                   و هم‌جهت بودن با سطح، تیکت ورود با حد ضرر و حد سود تولید می‌کند.
-                </p>
-                <p className="text-amber-300/80">
-                  <strong>برای تطبیق دقیق با بروکر شما:</strong> در صورت تمایل به استفاده از دیتای XAUUSD
-                  اسپات واقعی، می‌توانید یک API key رایگان از TwelveData (۸۰۰ درخواست روزانه) دریافت کنید
-                  و در کد جایگزین کنید. در آن صورت تطبیق به‌صورت $۱-۲ و ۱-۲ واحد RSI خواهد بود.
                 </p>
               </div>
             </Card>
