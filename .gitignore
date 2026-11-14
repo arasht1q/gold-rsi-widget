@@ -1,54 +1,76 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
 
-# dependencies
-node_modules
-/.pnp
-.pnp.*
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/versions
+# Next.js
+.next/
+out/
+build/
+dist/
 
-# testing
-/coverage
+# Expo
+.expo/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+web-build/
 
-# next.js
-/.next/
-/out/
+# Production
+*.tsbuildinfo
 
-# production
-/build
+# Environment
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
 
-# misc
-.DS_Store
-*.pem
-
-# debug
+# Logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-.pnpm-debug.log*
-
-# env files (can opt-in for committing if needed)
-.env*
-
-# vercel
-.vercel
-
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts
-local-*
-.claude
-.z-ai-config
-*.log
 dev.log
-dev.out.log
-test
-prompt
 
-server.log
-# Skills directory
-/skills/
+# OS
+.DS_Store
+*.pem
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Data files (large, not for git)
+data/*.csv
+data/*.pkl
+data/*.json
+data/charts/
+data/charts_overlap/
+
+# Download artifacts
+download/*.pdf
+download/*.xlsx
+download/*.html
+download/*.zip
+download/*.png
+download/assets/
+download/overlap_assets/
+
+# Scripts outputs
+scripts/__pycache__/
+*.pyc
+
+# Mobile platform folders
+android/
+ios/
+
+# Misc
+.cache/
+coverage/
+*.log

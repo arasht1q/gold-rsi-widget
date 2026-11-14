@@ -781,11 +781,20 @@ export default function Home() {
                   {iz.insideZones.map((z, i) => {
                     const isWeekly = z.type === 'weekly';
                     return (
-                      <div key={i} className="text-[10px] text-stone-700 mb-1 flex items-center gap-1">
-                        <span className="w-2 h-2 rounded" style={{ background: isWeekly ? '#f5b87a' : '#c8c8c8' }} />
-                        <span className="text-stone-600">{isWeekly ? 'هفتگی' : 'روزانه'}</span>
-                        <span>{new Date(z.date + 'T00:00:00Z').toLocaleDateString('fa-IR', { timeZone: 'UTC' })}</span>
-                        <span className="font-bold tabular-nums mr-auto">${z.midpoint.toFixed(2)}</span>
+                      <div key={i} className="text-[10px] text-stone-700 mb-1 p-1.5 rounded"
+                           style={{ background: CARD_BG }}>
+                        <div className="flex items-center gap-1 mb-0.5">
+                          <span className="w-2 h-2 rounded" style={{ background: isWeekly ? '#f5b87a' : '#c8c8c8' }} />
+                          <span className="text-stone-600 font-bold">{isWeekly ? 'هفتگی' : 'روزانه'}</span>
+                          <span className="text-stone-500 font-mono tabular-nums mr-1">{z.date}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-[9px]">
+                          <span className="text-stone-400">شروع:</span>
+                          <span className="font-bold tabular-nums text-stone-700">${z.open.toFixed(2)}</span>
+                          <span className="text-stone-300">→</span>
+                          <span className="text-stone-400">پایان:</span>
+                          <span className="font-bold tabular-nums text-stone-700">${z.close.toFixed(2)}</span>
+                        </div>
                       </div>
                     );
                   })}
@@ -810,21 +819,25 @@ export default function Home() {
                     <span className="w-2 h-2 rounded"
                           style={{ background: iz.nextTarget.type === 'weekly' ? '#f5b87a' : '#c8c8c8' }} />
                   </div>
-                  <div className="flex items-center justify-between text-[11px]">
-                    <div>
-                      <span className="text-stone-600">{iz.nextTarget.type === 'weekly' ? 'هفتگی' : 'روزانه'}</span>
-                      <span className="text-stone-400 mr-1">
-                        {new Date(iz.nextTarget.date + 'T00:00:00Z').toLocaleDateString('fa-IR', {
-                          month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC',
-                        })}
-                      </span>
+                  <div className="flex items-center justify-between text-[11px] mb-1.5">
+                    <div className="flex items-center gap-1">
+                      <span className="text-stone-600 font-bold">{iz.nextTarget.type === 'weekly' ? 'هفتگی' : 'روزانه'}</span>
+                      <span className="text-stone-500 font-mono tabular-nums">{iz.nextTarget.date}</span>
                     </div>
-                    <div className="font-bold tabular-nums text-stone-800">
-                      ${iz.nextTarget.midpoint.toFixed(2)}
+                  </div>
+                  {/* Zone open/close range */}
+                  <div className="grid grid-cols-2 gap-1 mb-2 text-[9px]">
+                    <div className="rounded p-1 text-center" style={{ background: CARD_BG }}>
+                      <div className="text-stone-400">شروع زون</div>
+                      <div className="font-bold tabular-nums text-stone-700">${iz.nextTarget.open.toFixed(2)}</div>
+                    </div>
+                    <div className="rounded p-1 text-center" style={{ background: CARD_BG }}>
+                      <div className="text-stone-400">انتهای زون</div>
+                      <div className="font-bold tabular-nums text-stone-700">${iz.nextTarget.close.toFixed(2)}</div>
                     </div>
                   </div>
                   {/* Distance in 3 formats */}
-                  <div className="grid grid-cols-3 gap-1 mt-2 text-[9px]">
+                  <div className="grid grid-cols-3 gap-1 text-[9px]">
                     {(() => {
                       const diff = Math.abs(iz.nextTarget.midpoint - iz.currentPrice);
                       const pips = diff * 10;
@@ -1346,52 +1359,67 @@ function ZoneRow({ z, iz }: {
   const isAbove = z.midpoint > iz.currentPrice;
   const isInside = iz.insideZones.some(i => i.date === z.date && i.type === z.type);
 
+  // Format date as Gregorian YYYY-MM-DD
+  const gregorianDate = z.date; // already in YYYY-MM-DD format from API
+
   return (
-    <div className="rounded p-1.5 flex items-center gap-2"
+    <div className="rounded p-2"
          style={{
            background: zoneBg,
            border: `1px solid ${zoneBorder}`,
            borderRight: `3px solid ${zoneColor}`,
          }}>
-      {/* Type indicator */}
-      <div className="flex flex-col items-center" style={{ minWidth: '32px' }}>
-        <span className="w-2 h-2 rounded-full" style={{ background: zoneColor }} />
-        <span className="text-[8px] text-stone-500 mt-0.5">
-          {isWeekly ? 'هفتگی' : 'روزانه'}
-        </span>
-      </div>
+      {/* Row 1: Type + Date + Direction + Distance % */}
+      <div className="flex items-center gap-2 mb-1.5">
+        {/* Type indicator */}
+        <div className="flex items-center gap-1" style={{ minWidth: '48px' }}>
+          <span className="w-2 h-2 rounded-full" style={{ background: zoneColor }} />
+          <span className="text-[9px] font-bold text-stone-600">
+            {isWeekly ? 'هفتگی' : 'روزانه'}
+          </span>
+        </div>
 
-      {/* Date */}
-      <div className="text-[9px] text-stone-500" style={{ minWidth: '60px' }}>
-        {new Date(z.date + 'T00:00:00Z').toLocaleDateString('fa-IR', {
-          month: 'short', day: 'numeric', timeZone: 'UTC',
-        })}
-      </div>
+        {/* Gregorian Date */}
+        <div className="text-[10px] text-stone-700 font-mono tabular-nums" style={{ minWidth: '85px' }}>
+          {gregorianDate}
+        </div>
 
-      {/* Price */}
-      <div className="font-bold tabular-nums text-stone-800 text-[11px]" style={{ minWidth: '60px' }}>
-        ${z.midpoint.toFixed(2)}
-      </div>
+        {/* Direction arrow */}
+        <div className="text-[11px] font-bold" style={{
+          color: isInside ? PALETTE.divergence.text :
+                 isAbove ? PALETTE.reversal.text : PALETTE.passThrough.text,
+        }}>
+          {isInside ? '✓ داخل' : isAbove ? '↑ بالا' : '↓ پایین'}
+        </div>
 
-      {/* Direction arrow */}
-      <div className="text-[10px]" style={{ color: isAbove ? PALETTE.reversal.text : PALETTE.passThrough.text }}>
-        {isInside ? '✓' : isAbove ? '↑' : '↓'}
-      </div>
-
-      {/* Distance: points/pips/pct */}
-      <div className="flex flex-col items-end text-[8px] leading-tight mr-auto">
-        <div className="flex items-center gap-1.5">
+        {/* Distance: points/pips/pct — right aligned */}
+        <div className="flex items-center gap-2 text-[9px] mr-auto">
           <span className="text-stone-400">پوینت:</span>
           <span className="font-bold tabular-nums text-stone-700">{points.toFixed(1)}</span>
-        </div>
-        <div className="flex items-center gap-1.5">
+          <span className="text-stone-300">|</span>
           <span className="text-stone-400">pip:</span>
           <span className="font-bold tabular-nums text-stone-700">{pips.toFixed(0)}</span>
-          <span className="text-stone-400">|</span>
+          <span className="text-stone-300">|</span>
           <span className="font-bold tabular-nums" style={{
             color: isInside ? PALETTE.divergence.text :
                    isAbove ? PALETTE.reversal.text : PALETTE.passThrough.text,
           }}>{distPct.toFixed(2)}٪</span>
+        </div>
+      </div>
+
+      {/* Row 2: Zone Start (open) + Zone End (close) + Midpoint */}
+      <div className="grid grid-cols-3 gap-1.5 text-[9px]">
+        <div className="rounded p-1 text-center" style={{ background: CARD_BG }}>
+          <div className="text-stone-400">شروع زون (Open)</div>
+          <div className="font-bold tabular-nums text-stone-700">${z.open.toFixed(2)}</div>
+        </div>
+        <div className="rounded p-1 text-center" style={{ background: CARD_BG }}>
+          <div className="text-stone-400">انتهای زون (Close)</div>
+          <div className="font-bold tabular-nums text-stone-700">${z.close.toFixed(2)}</div>
+        </div>
+        <div className="rounded p-1 text-center" style={{ background: CARD_BG }}>
+          <div className="text-stone-400">وسط زون</div>
+          <div className="font-bold tabular-nums text-stone-700">${z.midpoint.toFixed(2)}</div>
         </div>
       </div>
     </div>
