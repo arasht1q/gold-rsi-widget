@@ -1,0 +1,122 @@
+name: Build Android APK
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Java JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools build-tools;34.0.0 platforms;android-34'
+
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Install dependencies
+        working-directory: android-app
+        run: npm install --legacy-peer-deps
+
+      - name: Setup Expo
+        uses: expo/expo-github-action@v8
+        with:
+          expo-version: latest
+          eas-version: latest
+
+      - name: Prebuild Android native project
+        working-directory: android-app
+        run: npx expo prebuild --platform android --no-install
+
+      - name: Build APK with Gradle
+        working-directory: android-app/android
+        run: ./gradlew assembleRelease -x lintV8Release
+        env:
+          GRADLE_OPTS: '-Dorg.gradle.jvmargs="-Xmx4096m -XX:MaxMetaspaceSize=512m"'
+          JAVA_TOOL_OPTIONS: '-Xmx4096m'
+
+      - name: Rename and prepare APK
+        run: |
+          mkdir -p release
+          find android-app/android/app/build/outputs/apk -name "*.apk" -type f | while read apk; do
+            cp "$apk" release/gold-rsi-widget-$(echo "${{ github.ref_name }}" | sed 's/refs\/tags\///').apk 2>/dev/null || \
+            cp "$apk" release/gold-rsi-widget.apk
+          done
+          ls -la release/
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gold-rsi-widget-apk
+          path: release/*.apk
+          retention-days: 90
+
+      - name: Attach APK to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*.apk
+          name: Gold RSI Widget ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          body: |
+            # Gold RSI Widget — Android APK
+
+            ## Download
+
+            Download the APK file below (`gold-rsi-widget-*.apk`) and install on your Android device.
+
+            **Note:** You may need to enable **"Install from unknown sources"** in your Android settings to install this APK.
+
+            ## Features
+
+            - Live gold price (XAUUSD) + RSI(30) on M30 timeframe
+            - Prediction of market reaction (reversal / divergence / pass-through)
+            - Important zones from daily & weekly Doji candles
+            - M5 candlestick pattern detection (doji, pin bar, hammer, engulfing)
+            - Entry ticket with stop loss / take profit
+            - Persian RTL interface with pastel color theme
+
+            ## Data Sources
+
+            - Live price: TradingView TVC:GOLD
+            - Historical candles: Yahoo Finance GC=F
+            - Fallback: Binance PAXG/USDT
+
+            ## Installation
+
+            1. Download the `.apk` file from this release
+            2. Open it on your Android device
+            3. Allow installation from unknown sources if prompted
+            4. Install and open the app
+
+            ---
+            Built automatically by GitHub Actions from commit ${{ github.sha }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
