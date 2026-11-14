@@ -86,6 +86,42 @@ type ApiResponse = {
   prediction: Prediction | null;
   approach40: ApproachPrediction | null;
   approach60: ApproachPrediction | null;
+  prevDay: {
+    date: string;
+    sessions: {
+      key: string;
+      label: string;
+      startHourUTC: number;
+      endHourUTC: number;
+      open: number | null;
+      close: number | null;
+      high: number | null;
+      low: number | null;
+      candleCount: number;
+      changePct: number | null;
+    }[];
+    dayHigh: number;
+    dayLow: number;
+    dayOpen: number;
+    dayClose: number;
+    lastM5Candle: {
+      time: number;
+      open: number;
+      close: number;
+      high: number;
+      low: number;
+    } | null;
+  } | null;
+  todayFirstM5: {
+    time: number;
+    open: number;
+    close: number;
+    high: number;
+    low: number;
+  } | null;
+  proximityToPrevHigh: number | null;
+  proximityToPrevLow: number | null;
+  positionInRange: number | null;
   pattern: {
     pattern: string;
     label: string;
@@ -126,23 +162,23 @@ type ApiResponse = {
 
 // Pastel palette + dark gray bars
 const PALETTE = {
-  // Category accents (pastel) — used for menus, badges, labels
+  // Category accents (soft pastel colors — more colorful than gray, still gentle)
   reversal: {
     text: '#5b8c5a',
     bgSoft: '#e8f4e8',
-    bgBar: '#44403c',  // dark gray for the bar fill
+    bgBar: '#9ec99e',  // soft sage green
     border: '#c3e6c3',
   },
   divergence: {
     text: '#c08a5a',
     bgSoft: '#fdf3e7',
-    bgBar: '#44403c',  // dark gray
+    bgBar: '#f0b870',  // soft peach
     border: '#f0d8b5',
   },
   passThrough: {
     text: '#b56b6b',
     bgSoft: '#fce8e8',
-    bgBar: '#44403c',  // dark gray
+    bgBar: '#e89090',  // soft coral
     border: '#f0c8c8',
   },
   // Level-specific pastel accents
@@ -460,6 +496,184 @@ export default function Home() {
             isActual={!level60Pred.isSimulation}
             palette={PALETTE.level60}
           />
+        )}
+
+        {/* ====== PREVIOUS DAY ANALYSIS ====== */}
+        {data?.prevDay && (
+          <Card className="p-4 shadow-sm" style={{ background: CARD_BG, borderColor: BORDER_LIGHT, borderWidth: 1 }}>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg flex items-center justify-center"
+                     style={{ background: PALETTE.level40.bgSoft, border: `1px solid ${PALETTE.level40.border}` }}>
+                  <Clock className="w-4 h-4" style={{ color: PALETTE.level40.text }} />
+                </div>
+                <div>
+                  <div className="text-sm font-bold text-stone-800">تحلیل روز قبل</div>
+                  <div className="text-[10px] text-stone-500">
+                    {new Date(data.prevDay.date + 'T00:00:00Z').toLocaleDateString('fa-IR', {
+                      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+                      timeZone: 'UTC',
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Sessions table */}
+            <div className="space-y-1.5">
+              <div className="text-[10px] font-bold text-stone-500 mb-1">سشن‌های معاملاتی (UTC):</div>
+              {data.prevDay.sessions.map((s, i) => (
+                <div key={i} className="rounded-lg p-2"
+                     style={{ background: BG_LIGHTER, border: `1px solid ${BORDER_LIGHT}` }}>
+                  <div className="flex items-center justify-between text-[11px] mb-1">
+                    <span className="font-bold text-stone-700">{s.label}</span>
+                    <span className="text-[9px] text-stone-400">
+                      {String(s.startHourUTC).padStart(2,'0')}:00 - {String(s.endHourUTC).padStart(2,'0')}:00 UTC
+                    </span>
+                  </div>
+                  {s.open !== null && s.close !== null ? (
+                    <>
+                      <div className="grid grid-cols-2 gap-2 text-[10px]">
+                        <div className="flex items-center justify-between">
+                          <span className="text-stone-500">Open:</span>
+                          <span className="font-bold text-stone-700 tabular-nums">${s.open.toFixed(2)}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-stone-500">Close:</span>
+                          <span className="font-bold text-stone-700 tabular-nums">${s.close.toFixed(2)}</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between mt-1 text-[10px]">
+                        <span className="text-stone-500">تغییر سشن:</span>
+                        <span className="font-bold tabular-nums"
+                              style={{ color: (s.changePct ?? 0) >= 0 ? PALETTE.reversal.text : PALETTE.passThrough.text }}>
+                          {(s.changePct ?? 0) >= 0 ? '+' : ''}{(s.changePct ?? 0).toFixed(2)}٪
+                        </span>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-[10px] text-stone-400 text-center py-1">داده‌ای برای این سشن موجود نیست</div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* Day High/Low with live proximity */}
+            <div className="mt-3 p-2 rounded-lg"
+                 style={{ background: PALETTE.divergence.bgSoft, border: `1px solid ${PALETTE.divergence.border}` }}>
+              <div className="text-[10px] font-bold mb-2" style={{ color: PALETTE.divergence.text }}>
+                سقف و کف روز قبل:
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-[10px] mb-2">
+                <div className="rounded p-1.5 text-center"
+                     style={{ background: CARD_BG, border: `1px solid ${PALETTE.reversal.border}` }}>
+                  <div className="text-stone-500">سقف (High)</div>
+                  <div className="font-bold tabular-nums" style={{ color: PALETTE.reversal.text }}>
+                    ${data.prevDay.dayHigh.toFixed(2)}
+                  </div>
+                </div>
+                <div className="rounded p-1.5 text-center"
+                     style={{ background: CARD_BG, border: `1px solid ${PALETTE.passThrough.border}` }}>
+                  <div className="text-stone-500">کف (Low)</div>
+                  <div className="font-bold tabular-nums" style={{ color: PALETTE.passThrough.text }}>
+                    ${data.prevDay.dayLow.toFixed(2)}
+                  </div>
+                </div>
+              </div>
+              {/* Position in range */}
+              {data.positionInRange !== null && (
+                <div className="mt-2">
+                  <div className="flex items-center justify-between text-[10px] mb-1">
+                    <span className="text-stone-600">موقعیت قیمت لایو در بازه روز قبل:</span>
+                    <span className="font-bold" style={{ color: PALETTE.divergence.text }}>
+                      {(data.positionInRange * 100).toFixed(0)}٪
+                    </span>
+                  </div>
+                  {/* Position bar — from low (left) to high (right) */}
+                  <div className="relative h-2.5 rounded-full overflow-hidden"
+                       style={{ background: `linear-gradient(90deg, ${PALETTE.passThrough.bgBar}, ${BORDER_LIGHT}, ${PALETTE.reversal.bgBar})` }}>
+                    {/* Marker for current price */}
+                    <div className="absolute top-0 bottom-0 w-1 bg-stone-800"
+                         style={{ left: `calc(${data.positionInRange * 100}% - 2px)` }} />
+                  </div>
+                  <div className="flex justify-between text-[9px] mt-0.5">
+                    <span style={{ color: PALETTE.passThrough.text }}>کف</span>
+                    <span className="text-stone-400">میانه</span>
+                    <span style={{ color: PALETTE.reversal.text }}>سقف</span>
+                  </div>
+                </div>
+              )}
+              {/* Proximity percentages */}
+              {(data.proximityToPrevHigh !== null || data.proximityToPrevLow !== null) && (
+                <div className="grid grid-cols-2 gap-2 mt-2 text-[10px]">
+                  {data.proximityToPrevHigh !== null && (
+                    <div className="flex items-center justify-between rounded p-1"
+                         style={{ background: CARD_BG }}>
+                      <span className="text-stone-500">فاصله تا سقف:</span>
+                      <span className="font-bold tabular-nums" style={{ color: PALETTE.reversal.text }}>
+                        {data.proximityToPrevHigh.toFixed(2)}٪
+                      </span>
+                    </div>
+                  )}
+                  {data.proximityToPrevLow !== null && (
+                    <div className="flex items-center justify-between rounded p-1"
+                         style={{ background: CARD_BG }}>
+                      <span className="text-stone-500">فاصله تا کف:</span>
+                      <span className="font-bold tabular-nums" style={{ color: PALETTE.passThrough.text }}>
+                        {data.proximityToPrevLow.toFixed(2)}٪
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Last M5 of previous day + First M5 of today */}
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              {data.prevDay.lastM5Candle && (
+                <div className="rounded-lg p-2"
+                     style={{ background: BG_LIGHTER, border: `1px solid ${BORDER_LIGHT}` }}>
+                  <div className="text-[9px] text-stone-500 mb-1">آخرین کندل M5 روز قبل</div>
+                  <div className="text-[9px] text-stone-400 mb-1">
+                    {new Date(data.prevDay.lastM5Candle.time).toLocaleTimeString('fa-IR', {
+                      hour: '2-digit', minute: '2-digit', timeZone: 'UTC',
+                    })} UTC
+                  </div>
+                  <div className="space-y-0.5 text-[10px]">
+                    <div className="flex justify-between">
+                      <span className="text-stone-500">O:</span>
+                      <span className="font-bold text-stone-700 tabular-nums">${data.prevDay.lastM5Candle.open.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-stone-500">C:</span>
+                      <span className="font-bold text-stone-700 tabular-nums">${data.prevDay.lastM5Candle.close.toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {data.todayFirstM5 && (
+                <div className="rounded-lg p-2"
+                     style={{ background: PALETTE.level40.bgSoft, border: `1px solid ${PALETTE.level40.border}` }}>
+                  <div className="text-[9px] text-stone-500 mb-1">اولین کندل M5 امروز</div>
+                  <div className="text-[9px] text-stone-400 mb-1">
+                    {new Date(data.todayFirstM5.time).toLocaleTimeString('fa-IR', {
+                      hour: '2-digit', minute: '2-digit', timeZone: 'UTC',
+                    })} UTC
+                  </div>
+                  <div className="space-y-0.5 text-[10px]">
+                    <div className="flex justify-between">
+                      <span className="text-stone-500">O:</span>
+                      <span className="font-bold text-stone-700 tabular-nums">${data.todayFirstM5.open.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-stone-500">C:</span>
+                      <span className="font-bold text-stone-700 tabular-nums">${data.todayFirstM5.close.toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </Card>
         )}
 
         {/* ====== PATTERN DETECTION (M5) ====== */}
@@ -795,9 +1009,10 @@ function ProbBar({ label, value, palette, icon }: {
         </span>
         <span className="font-bold text-stone-800 tabular-nums">{(value * 100).toFixed(0)}٪</span>
       </div>
-      {/* Bar background = light gray, fill = dark gray */}
+      {/* Bar background = light gray, fill = soft pastel color from palette */}
       <div className="h-2 rounded-full overflow-hidden" style={{ background: BORDER_LIGHT }}>
-        <div className="h-full transition-all" style={{ width: `${value * 100}%`, background: DARK_GRAY }} />
+        <div className="h-full transition-all"
+             style={{ width: `${value * 100}%`, background: palette.bgBar }} />
       </div>
     </div>
   );

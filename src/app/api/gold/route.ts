@@ -17,10 +17,10 @@ export const revalidate = 0;
 const TV_SCANNER = 'https://scanner.tradingview.com/symbol?symbol=TVC%3AGOLD&fields=close,change,change_abs,name,description,high,low,open,volume,type,currency_code';
 // Yahoo Finance — historical M30 candles for GC=F (gold futures, for RSI calc)
 const YAHOO_GC_M30 = 'https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=30m&range=10d';
-const YAHOO_GC_M5  = 'https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=5m&range=1d';
+const YAHOO_GC_M5  = 'https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=5m&range=5d';
 // Fallback
 const BINANCE_PAXG_M30 = 'https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval=30m&limit=300';
-const BINANCE_PAXG_M5  = 'https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval=5m&limit=20';
+const BINANCE_PAXG_M5  = 'https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval=5m&limit=288';
 
 type RawKline = [number, string, string, string, string, string, number, string, number, string, string, string];
 
@@ -37,6 +37,163 @@ type TVQuote = {
   type: string;
   currency_code: string;
 };
+
+// ============================================================
+// Helpers for previous-day analysis
+// ============================================================
+
+// Get UTC date string (YYYY-MM-DD) from a timestamp
+function utcDateString(ms: number): string {
+  const d = new Date(ms);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+}
+
+// Group candles by UTC day
+function groupByDay(candles: Candle[]): Map<string, Candle[]> {
+  const map = new Map<string, Candle[]>();
+  for (const c of candles) {
+    const key = utcDateString(c.openTime);
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(c);
+  }
+  return map;
+}
+
+// Session boundaries in UTC hour
+// Asia: 00:00-07:00 UTC (Tokyo)
+// Europe: 07:00-13:00 UTC (London)
+// US: 13:00-21:00 UTC (New York)
+const SESSIONS = [
+  { key: 'asia',   label: 'آسیا (توکیو)',   startHour: 0,  endHour: 7  },
+  { key: 'europe', label: 'اروپا (لندن)',   startHour: 7,  endHour: 13 },
+  { key: 'us',     label: 'آمریکا (نیویورک)', startHour: 13, endHour: 21 },
+];
+
+type SessionData = {
+  key: string;
+  label: string;
+  startHourUTC: number;
+  endHourUTC: number;
+  open: number | null;   // open of first candle in session
+  close: number | null;  // close of last candle in session
+  high: number | null;
+  low: number | null;
+  candleCount: number;
+  changePct: number | null;  // (close - open) / open * 100
+};
+
+function computeSessionsForDay(dayCandles: Candle[]): SessionData[] {
+  return SESSIONS.map(s => {
+    const sessionCandles = dayCandles.filter(c => {
+      const h = new Date(c.openTime).getUTCHours();
+      return h >= s.startHour && h < s.endHour;
+    });
+    if (sessionCandles.length === 0) {
+      return {
+        key: s.key,
+        label: s.label,
+        startHourUTC: s.startHour,
+        endHourUTC: s.endHour,
+        open: null, close: null, high: null, low: null,
+        candleCount: 0, changePct: null,
+      };
+    }
+    const open = sessionCandles[0].open;
+    const close = sessionCandles[sessionCandles.length - 1].close;
+    const high = Math.max(...sessionCandles.map(c => c.high));
+    const low = Math.min(...sessionCandles.map(c => c.low));
+    return {
+      key: s.key,
+      label: s.label,
+      startHourUTC: s.startHour,
+      endHourUTC: s.endHour,
+      open, close, high, low,
+      candleCount: sessionCandles.length,
+      changePct: open !== 0 ? ((close - open) / open) * 100 : 0,
+    };
+  });
+}
+
+type PreviousDayAnalysis = {
+  date: string;            // YYYY-MM-DD
+  sessions: SessionData[];
+  dayHigh: number;
+  dayLow: number;
+  dayOpen: number;
+  dayClose: number;
+  lastM5Candle: { time: number; open: number; close: number; high: number; low: number } | null;
+};
+
+type TodayFirstM5 = {
+  time: number;
+  open: number;
+  close: number;
+  high: number;
+  low: number;
+} | null;
+
+function analyzePreviousDay(
+  m30Candles: Candle[],
+  m5Candles: Candle[],
+): { prevDay: PreviousDayAnalysis | null; todayFirstM5: TodayFirstM5 } {
+  // Get all unique trading days from M30 candles, sorted descending (most recent first)
+  const m30ByDay = groupByDay(m30Candles);
+  const allDays = Array.from(m30ByDay.keys()).sort().reverse();
+
+  if (allDays.length < 1) {
+    return { prevDay: null, todayFirstM5: null };
+  }
+
+  // "Today" = the most recent day (which is the current/most recent trading day)
+  const todayDate = allDays[0];
+  // "Previous day" = the day before today (most recent complete day)
+  const prevDate = allDays.length > 1 ? allDays[1] : allDays[0];
+
+  const prevDayCandles = m30ByDay.get(prevDate) || [];
+  if (prevDayCandles.length === 0) {
+    return { prevDay: null, todayFirstM5: null };
+  }
+
+  // Compute previous day stats
+  const dayHigh = Math.max(...prevDayCandles.map(c => c.high));
+  const dayLow = Math.min(...prevDayCandles.map(c => c.low));
+  const dayOpen = prevDayCandles[0].open;
+  const dayClose = prevDayCandles[prevDayCandles.length - 1].close;
+  const sessions = computeSessionsForDay(prevDayCandles);
+
+  // Find last M5 candle of previous day
+  const prevDayM5 = m5Candles.filter(c => utcDateString(c.openTime) === prevDate);
+  const lastM5OfPrevDay = prevDayM5.length > 0 ? prevDayM5[prevDayM5.length - 1] : null;
+
+  // Find first M5 candle of today
+  const todayM5 = m5Candles.filter(c => utcDateString(c.openTime) === todayDate);
+  const firstM5OfToday = todayM5.length > 0 ? todayM5[0] : null;
+
+  return {
+    prevDay: {
+      date: prevDate,
+      sessions,
+      dayHigh,
+      dayLow,
+      dayOpen,
+      dayClose,
+      lastM5Candle: lastM5OfPrevDay ? {
+        time: lastM5OfPrevDay.openTime,
+        open: lastM5OfPrevDay.open,
+        close: lastM5OfPrevDay.close,
+        high: lastM5OfPrevDay.high,
+        low: lastM5OfPrevDay.low,
+      } : null,
+    },
+    todayFirstM5: firstM5OfToday ? {
+      time: firstM5OfToday.openTime,
+      open: firstM5OfToday.open,
+      close: firstM5OfToday.close,
+      high: firstM5OfToday.high,
+      low: firstM5OfToday.low,
+    } : null,
+  };
+}
 
 async function fetchTradingView(): Promise<TVQuote | null> {
   // Retry up to 3 times to handle 429 rate limiting
@@ -209,6 +366,9 @@ export async function GET() {
   const features = extractFeatures(candles30m, rsi, sma50);
   const prediction = features ? predict(features) : null;
 
+  // Previous day analysis (sessions, high/low, last M5 candle, today's first M5)
+  const { prevDay, todayFirstM5 } = analyzePreviousDay(candles30m, candles5m);
+
   // Always compute approach/simulation predictions for BOTH levels
   // (so user always sees the probabilities for what would happen at 40 and 60)
   let approach40: any = null;
@@ -259,6 +419,20 @@ export async function GET() {
   const lastRsi = rsi[rsi.length - 1];
   // Prefer TradingView live price; fall back to last candle close
   const lastPrice = tvQuote?.close ?? lastCandle.close;
+
+  // Compute proximity of live price to previous day's high/low
+  let proximityToPrevHigh: number | null = null;
+  let proximityToPrevLow: number | null = null;
+  let positionInRange: number | null = null;  // 0 = at low, 1 = at high, 0.5 = middle
+  if (prevDay && lastPrice > 0) {
+    const range = prevDay.dayHigh - prevDay.dayLow;
+    if (range > 0) {
+      proximityToPrevHigh = ((prevDay.dayHigh - lastPrice) / prevDay.dayHigh) * 100;
+      proximityToPrevLow = ((lastPrice - prevDay.dayLow) / prevDay.dayLow) * 100;
+      positionInRange = (lastPrice - prevDay.dayLow) / range;
+      positionInRange = Math.max(0, Math.min(1, positionInRange));
+    }
+  }
 
   // Detect if market is currently closed (no recent candle in last 2 hours)
   const now = Date.now();
@@ -368,6 +542,20 @@ export async function GET() {
     } : null,
     approach40,
     approach60,
+    // Previous day analysis
+    prevDay: prevDay ? {
+      date: prevDay.date,
+      sessions: prevDay.sessions,
+      dayHigh: prevDay.dayHigh,
+      dayLow: prevDay.dayLow,
+      dayOpen: prevDay.dayOpen,
+      dayClose: prevDay.dayClose,
+      lastM5Candle: prevDay.lastM5Candle,
+    } : null,
+    todayFirstM5,
+    proximityToPrevHigh,
+    proximityToPrevLow,
+    positionInRange,
     pattern: {
       pattern: pattern.pattern,
       label: pattern.label,
