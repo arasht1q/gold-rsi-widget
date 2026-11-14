@@ -52,7 +52,7 @@ jobs:
 
       - name: Build APK with Gradle
         working-directory: android-app/android
-        run: ./gradlew assembleRelease -x lintV8Release
+        run: ./gradlew assembleRelease -x lintRelease -x lintDebug
         env:
           GRADLE_OPTS: '-Dorg.gradle.jvmargs="-Xmx4096m -XX:MaxMetaspaceSize=512m"'
 
