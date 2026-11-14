@@ -54,7 +54,7 @@ jobs:
         working-directory: android-app/android
         run: |
           echo "=== Before patch ==="
-          cat gradle.properties | grep -i kotlin || echo "(no kotlin in gradle.properties)"
+          grep -i kotlin gradle.properties || echo "(no kotlin in gradle.properties)"
           echo "---"
           
           # 1. Force Kotlin 1.9.25 in gradle.properties
@@ -64,27 +64,43 @@ jobs:
             echo "android.kotlinVersion=1.9.25" >> gradle.properties
           fi
           
-          # 2. Also set kotlinVersion in root build.gradle
-          sed -i "s/kotlinVersion = findProperty('android.kotlinVersion') ?: '1.9.24'/kotlinVersion = findProperty('android.kotlinVersion') ?: '1.9.25'/" build.gradle
-          sed -i "s/'1.9.24'/'1.9.25'/g" build.gradle
+          # 2. Patch kotlinVersion default in root build.gradle (replace any 1.9.24 with 1.9.25)
+          sed -i 's/1\.9\.24/1.9.25/g' build.gradle
           
-          # 3. Add suppressKotlinVersionCompatibilityCheck to app/build.gradle composeOptions
-          # First check if composeOptions exists
-          if grep -q "composeOptions" app/build.gradle; then
-            # Add suppression inside existing composeOptions
-            sed - '/composeOptions {/a\        suppressKotlinVersionCompatibilityCheck = true' app/build.gradle
-          else
-            # Create composeOptions block inside android { ... }
-            sed - '/android {/a\    composeOptions {\n        suppressKotlinVersionCompatibilityCheck = true\n    }' app/build.gradle
-          fi
+          # 3. Add suppressKotlinVersionCompatibilityCheck to app/build.gradle
+          #    Use Python to safely modify the file (avoids sed escaping issues)
+          python3 << 'PYEOF'
+          import re
+          with open('app/build.gradle', 'r') as f:
+              content = f.read()
+          
+          if 'composeOptions' not in content:
+              # Add composeOptions block after 'android {' line
+              content = content.replace(
+                  'android {',
+                  'android {\n    composeOptions {\n        suppressKotlinVersionCompatibilityCheck = true\n    }',
+                  1
+              )
+          elif 'suppressKotlinVersionCompatibilityCheck' not in content:
+              # Add inside existing composeOptions
+              content = content.replace(
+                  'composeOptions {',
+                  'composeOptions {\n        suppressKotlinVersionCompatibilityCheck = true',
+                  1
+              )
+          
+          with open('app/build.gradle', 'w') as f:
+              f.write(content)
+          print("✓ Patched app/build.gradle")
+          PYEOF
           
           echo "=== After patch ==="
           echo "--- gradle.properties ---"
-          cat gradle.properties | grep -i kotlin
-          echo "--- build.gradle kotlin ---"
-          grep -n "kotlinVersion" build.gradle
+          grep -i kotlin gradle.properties
+          echo "--- build.gradle ---"
+          grep "kotlinVersion" build.gradle | head -3
           echo "--- app/build.gradle compose ---"
-          grep -n -A 2 "composeOptions" app/build.gradle || echo "(no composeOptions)"
+          grep -A 2 "composeOptions" app/build.gradle | head -5
 
       - name: Build APK with Gradle
         working-directory: android-app/android
