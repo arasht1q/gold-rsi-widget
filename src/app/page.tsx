@@ -19,7 +19,9 @@ import {
   Clock,
   ChevronDown,
   ChevronUp,
+  Smartphone,
 } from 'lucide-react';
+import { InstallGuide } from '@/components/install-guide';
 
 type ApiResponse = {
   ok: boolean;
@@ -98,6 +100,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  const [showInstall, setShowInstall] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
@@ -119,6 +122,15 @@ export default function Home() {
     const interval = setInterval(fetchData, 30000); // every 30s
     return () => clearInterval(interval);
   }, [fetchData]);
+
+  // Register service worker for PWA
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => {
+        // ignore — PWA still works without SW
+      });
+    }
+  }, []);
 
   // Determine alert level
   const alertLevel = data?.status === 'IN_ZONE' ? 'critical'
@@ -153,8 +165,15 @@ export default function Home() {
                     className="h-9 w-9 text-slate-300 hover:text-amber-400">
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </Button>
+            <Button variant="ghost" size="icon" onClick={() => setShowInstall(true)}
+                    className="h-9 w-9 text-slate-300 hover:text-amber-400"
+                    title="راهنمای نصب روی گوشی">
+              <Smartphone className="w-4 h-4" />
+            </Button>
           </div>
         </div>
+
+        {showInstall && <InstallGuide onClose={() => setShowInstall(false)} />}
 
         {/* ====== WIDGET CARD (compact, glanceable) ====== */}
         <Card className="relative overflow-hidden border-slate-800 bg-slate-900/80 backdrop-blur p-4 shadow-2xl">
