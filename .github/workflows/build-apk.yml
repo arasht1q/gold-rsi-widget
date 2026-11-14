@@ -39,15 +39,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-gradle-
 
+      - name: Install Expo CLI
+        run: npm install -g expo-cli
+
       - name: Install dependencies
         working-directory: android-app
         run: npm install --legacy-peer-deps
-
-      - name: Setup Expo
-        uses: expo/expo-github-action@v8
-        with:
-          expo-version: latest
-          eas-version: latest
 
       - name: Prebuild Android native project
         working-directory: android-app
@@ -58,16 +55,19 @@ jobs:
         run: ./gradlew assembleRelease -x lintV8Release
         env:
           GRADLE_OPTS: '-Dorg.gradle.jvmargs="-Xmx4096m -XX:MaxMetaspaceSize=512m"'
-          JAVA_TOOL_OPTIONS: '-Xmx4096m'
 
-      - name: Rename and prepare APK
+      - name: Find and rename APK
         run: |
           mkdir -p release
-          find android-app/android/app/build/outputs/apk -name "*.apk" -type f | while read apk; do
-            cp "$apk" release/gold-rsi-widget-$(echo "${{ github.ref_name }}" | sed 's/refs\/tags\///').apk 2>/dev/null || \
-            cp "$apk" release/gold-rsi-widget.apk
-          done
-          ls -la release/
+          APK_PATH=$(find android-app/android/app/build/outputs/apk -name "*.apk" -type f | head -1)
+          echo "Found APK: $APK_PATH"
+          if [ -n "$APK_PATH" ]; then
+            cp "$APK_PATH" release/gold-rsi-widget-${{ github.ref_name }}.apk
+            ls -la release/
+          else
+            echo "No APK found!"
+            exit 1
+          fi
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
