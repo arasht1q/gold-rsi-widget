@@ -86,6 +86,50 @@ type ApiResponse = {
   prediction: Prediction | null;
   approach40: ApproachPrediction | null;
   approach60: ApproachPrediction | null;
+  touchFirst: {
+    likelyLevel: 40 | 60;
+    probability40: number;
+    probability60: number;
+    distance40: number;
+    distance60: number;
+    direction: 'up' | 'down' | 'flat';
+    reasoning: string;
+  } | null;
+  importantZones: {
+    zones: {
+      type: 'daily' | 'weekly';
+      date: string;
+      open: number;
+      close: number;
+      midpoint: number;
+      rangeHigh: number;
+      rangeLow: number;
+      candleRange: number;
+      bodySize: number;
+      bodyRatio: number;
+    }[];
+    insideZones: {
+      type: 'daily' | 'weekly';
+      date: string;
+      open: number;
+      close: number;
+      midpoint: number;
+      rangeHigh: number;
+      rangeLow: number;
+    }[];
+    nearestZone: {
+      type: 'daily' | 'weekly';
+      date: string;
+      open: number;
+      close: number;
+      midpoint: number;
+      rangeHigh: number;
+      rangeLow: number;
+    } | null;
+    nearestDistance: number | null;
+    nearestDirection: 'above' | 'below' | 'inside' | null;
+    currentPrice: number;
+  } | null;
   prevDay: {
     date: string;
     sessions: {
@@ -478,24 +522,333 @@ export default function Home() {
           </div>
         </Card>
 
-        {/* ====== ALWAYS-SHOW: PREDICTION FOR LEVEL 40 ====== */}
-        {level40Pred && (
-          <PredictionCard
-            level={40}
-            prediction={level40Pred}
-            isActual={!level40Pred.isSimulation}
-            palette={PALETTE.level40}
-          />
+        {/* ====== COMBINED PREDICTION CARD (level 40 + 60 in one) ====== */}
+        {data?.touchFirst && level40Pred && level60Pred && (
+          <Card className="p-4 shadow-sm"
+                style={{
+                  borderColor: data.touchFirst.likelyLevel === 60 ? PALETTE.level60.border : PALETTE.level40.border,
+                  borderWidth: 1,
+                  background: `linear-gradient(180deg, ${
+                    data.touchFirst.likelyLevel === 60 ? PALETTE.level60.bgSoft : PALETTE.level40.bgSoft
+                  } 0%, ${CARD_BG} 70%)`,
+                }}>
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-7 h-7 rounded-lg flex items-center justify-center"
+                   style={{
+                     background: data.touchFirst.likelyLevel === 60 ? PALETTE.level60.bgSoft : PALETTE.level40.bgSoft,
+                     border: `1px solid ${
+                       data.touchFirst.likelyLevel === 60 ? PALETTE.level60.border : PALETTE.level40.border
+                     }`,
+                   }}>
+                <Zap className="w-4 h-4"
+                     style={{ color: data.touchFirst.likelyLevel === 60 ? PALETTE.level60.text : PALETTE.level40.text }} />
+              </div>
+              <div className="flex-1">
+                <div className="text-sm font-bold text-stone-800">پیش‌بینی واکنش بازار</div>
+                <div className="text-[10px] text-stone-500">بر اساس آمار ۲ سال گذشته (۱۳۲۸ رویداد)</div>
+              </div>
+            </div>
+
+            {/* Which level is more likely */}
+            <div className="mb-3 p-2.5 rounded-lg"
+                 style={{
+                   background: data.touchFirst.likelyLevel === 60 ? PALETTE.level60.bgSoft : PALETTE.level40.bgSoft,
+                   border: `1px solid ${
+                     data.touchFirst.likelyLevel === 60 ? PALETTE.level60.border : PALETTE.level40.border
+                   }`,
+                 }}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[10px] font-bold text-stone-700">سطح محتمل‌تر برای برخورد:</span>
+                <Badge style={{
+                  background: data.touchFirst.likelyLevel === 60 ? PALETTE.level60.text : PALETTE.level40.text,
+                  color: 'white',
+                }}>
+                  سطح {data.touchFirst.likelyLevel}
+                </Badge>
+              </div>
+              {/* Probability bars for touching each level first */}
+              <div className="space-y-1.5">
+                <div>
+                  <div className="flex items-center justify-between text-[10px] mb-0.5">
+                    <span className="text-stone-600">برخورد به ۴۰ اول</span>
+                    <span className="font-bold tabular-nums"
+                          style={{ color: PALETTE.level40.text }}>
+                      {(data.touchFirst.probability40 * 100).toFixed(0)}٪
+                    </span>
+                  </div>
+                  <div className="h-1.5 rounded-full overflow-hidden" style={{ background: BORDER_LIGHT }}>
+                    <div className="h-full transition-all"
+                         style={{
+                           width: `${data.touchFirst.probability40 * 100}%`,
+                           background: PALETTE.level40.bgBar || PALETTE.level40.text,
+                         }} />
+                  </div>
+                </div>
+                <div>
+                  <div className="flex items-center justify-between text-[10px] mb-0.5">
+                    <span className="text-stone-600">برخورد به ۶۰ اول</span>
+                    <span className="font-bold tabular-nums"
+                          style={{ color: PALETTE.level60.text }}>
+                      {(data.touchFirst.probability60 * 100).toFixed(0)}٪
+                    </span>
+                  </div>
+                  <div className="h-1.5 rounded-full overflow-hidden" style={{ background: BORDER_LIGHT }}>
+                    <div className="h-full transition-all"
+                         style={{
+                           width: `${data.touchFirst.probability60 * 100}%`,
+                           background: PALETTE.level60.bgBar || PALETTE.level60.text,
+                         }} />
+                  </div>
+                </div>
+              </div>
+              <div className="text-[10px] text-stone-600 mt-2 flex items-start gap-1">
+                <span style={{ color: PALETTE.divergence.text }}>→</span>
+                <span>{data.touchFirst.reasoning}</span>
+              </div>
+              <div className="flex items-center justify-between text-[9px] text-stone-500 mt-1">
+                <span>فاصله تا ۴۰: {data.touchFirst.distance40.toFixed(1)} واحد</span>
+                <span>فاصله تا ۶۰: {data.touchFirst.distance60.toFixed(1)} واحد</span>
+              </div>
+            </div>
+
+            {/* Prediction for likely level (prominent) */}
+            <div className="mb-2">
+              <div className="text-[10px] font-bold text-stone-600 mb-1.5">
+                پیش‌بینی وقتی به سطح {data.touchFirst.likelyLevel} برسد:
+              </div>
+              <div className="space-y-2">
+                <ProbBar
+                  label="برگشت (تک‌برخورد)"
+                  value={data.touchFirst.likelyLevel === 40 ? level40Pred.reversal : level60Pred.reversal}
+                  palette={PALETTE.reversal}
+                  icon={<TrendingUp className="w-3 h-3" />}
+                />
+                <ProbBar
+                  label="واگرایی"
+                  value={data.touchFirst.likelyLevel === 40 ? level40Pred.divergence : level60Pred.divergence}
+                  palette={PALETTE.divergence}
+                  icon={<Activity className="w-3 h-3" />}
+                />
+                <ProbBar
+                  label="گذشتن از سطح"
+                  value={data.touchFirst.likelyLevel === 40 ? level40Pred.passThrough : level60Pred.passThrough}
+                  palette={PALETTE.passThrough}
+                  icon={<TrendingDown className="w-3 h-3" />}
+                />
+              </div>
+            </div>
+
+            <Separator className="my-2" style={{ background: BORDER_LIGHT }} />
+
+            {/* Prediction for other level (compact) */}
+            <div className="text-[10px] text-stone-500 mb-1">
+              پیش‌بینی سطح دیگر ({data.touchFirst.likelyLevel === 40 ? 60 : 40}):
+            </div>
+            <div className="grid grid-cols-3 gap-1 text-[9px]">
+              <div className="rounded p-1 text-center" style={{ background: PALETTE.reversal.bgSoft }}>
+                <div className="text-stone-500">برگشت</div>
+                <div className="font-bold" style={{ color: PALETTE.reversal.text }}>
+                  {((data.touchFirst.likelyLevel === 40 ? level60Pred.reversal : level40Pred.reversal) * 100).toFixed(0)}٪
+                </div>
+              </div>
+              <div className="rounded p-1 text-center" style={{ background: PALETTE.divergence.bgSoft }}>
+                <div className="text-stone-500">واگرایی</div>
+                <div className="font-bold" style={{ color: PALETTE.divergence.text }}>
+                  {((data.touchFirst.likelyLevel === 40 ? level60Pred.divergence : level40Pred.divergence) * 100).toFixed(0)}٪
+                </div>
+              </div>
+              <div className="rounded p-1 text-center" style={{ background: PALETTE.passThrough.bgSoft }}>
+                <div className="text-stone-500">گذشتن</div>
+                <div className="font-bold" style={{ color: PALETTE.passThrough.text }}>
+                  {((data.touchFirst.likelyLevel === 40 ? level60Pred.passThrough : level40Pred.passThrough) * 100).toFixed(0)}٪
+                </div>
+              </div>
+            </div>
+
+            {/* Reasons for likely level */}
+            <div className="mt-3 space-y-1">
+              <div className="text-[10px] font-bold text-stone-500 mb-1">
+                دلایل پیش‌بینی (سطح {data.touchFirst.likelyLevel}):
+              </div>
+              {(data.touchFirst.likelyLevel === 40 ? level40Pred.reasons : level60Pred.reasons).slice(0, 3).map((r, i) => (
+                <div key={i} className="text-[11px] text-stone-700 flex items-start gap-1.5">
+                  <span className="mt-0.5"
+                        style={{ color: data.touchFirst.likelyLevel === 60 ? PALETTE.level60.text : PALETTE.level40.text }}>•</span>
+                  <span>{r}</span>
+                </div>
+              ))}
+            </div>
+          </Card>
         )}
 
-        {/* ====== ALWAYS-SHOW: PREDICTION FOR LEVEL 60 ====== */}
-        {level60Pred && (
-          <PredictionCard
-            level={60}
-            prediction={level60Pred}
-            isActual={!level60Pred.isSimulation}
-            palette={PALETTE.level60}
-          />
+        {/* ====== IMPORTANT ZONES (Doji-based) ====== */}
+        {data?.importantZones && data.importantZones.zones.length > 0 && (
+          <Card className="p-4 shadow-sm"
+                style={{
+                  borderColor: data.importantZones.insideZones.length > 0
+                    ? PALETTE.divergence.border
+                    : BORDER_LIGHT,
+                  borderWidth: 1,
+                  background: data.importantZones.insideZones.length > 0
+                    ? `linear-gradient(180deg, ${PALETTE.divergence.bgSoft} 0%, ${CARD_BG} 70%)`
+                    : CARD_BG,
+                }}>
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-7 h-7 rounded-lg flex items-center justify-center"
+                   style={{
+                     background: data.importantZones.insideZones.length > 0
+                       ? PALETTE.divergence.bgSoft
+                       : PALETTE.level60.bgSoft,
+                     border: `1px solid ${
+                       data.importantZones.insideZones.length > 0
+                         ? PALETTE.divergence.border
+                         : PALETTE.level60.border
+                     }`,
+                   }}>
+                <Target className="w-4 h-4"
+                        style={{
+                          color: data.importantZones.insideZones.length > 0
+                            ? PALETTE.divergence.text
+                            : PALETTE.level60.text,
+                        }} />
+              </div>
+              <div className="flex-1">
+                <div className="text-sm font-bold text-stone-800">زون‌های مهم (دوجی)</div>
+                <div className="text-[10px] text-stone-500">
+                  از کندل‌های دوجی روزانه و هفتگی — سطوح Open/Close به‌عنوان زون
+                </div>
+              </div>
+            </div>
+
+            {/* Inside zone alert */}
+            {data.importantZones.insideZones.length > 0 ? (
+              <div className="mb-3 p-2.5 rounded-lg"
+                   style={{
+                     background: PALETTE.divergence.bgSoft,
+                     border: `1px solid ${PALETTE.divergence.border}`,
+                   }}>
+                <div className="flex items-center gap-1.5 mb-1">
+                  <Bell className="w-3.5 h-3.5" style={{ color: PALETTE.divergence.text }} />
+                  <span className="font-bold text-xs" style={{ color: PALETTE.divergence.text }}>
+                    داخل زون مهم هستیم!
+                  </span>
+                </div>
+                {data.importantZones.insideZones.map((z, i) => (
+                  <div key={i} className="text-[10px] text-stone-700 mb-1">
+                    <Badge variant="outline" className="text-[9px] py-0 px-1 ml-1"
+                           style={{
+                             borderColor: z.type === 'weekly' ? PALETTE.level60.border : PALETTE.level40.border,
+                             color: z.type === 'weekly' ? PALETTE.level60.text : PALETTE.level40.text,
+                           }}>
+                      {z.type === 'weekly' ? 'هفتگی' : 'روزانه'}
+                    </Badge>
+                    تاریخ: {new Date(z.date + 'T00:00:00Z').toLocaleDateString('fa-IR', { timeZone: 'UTC' })}
+                    {' '}— زون: ${z.rangeLow.toFixed(2)} تا ${z.rangeHigh.toFixed(2)}
+                  </div>
+                ))}
+              </div>
+            ) : data.importantZones.nearestZone ? (
+              <div className="mb-3 p-2.5 rounded-lg"
+                   style={{
+                     background: PALETTE.level60.bgSoft,
+                     border: `1px solid ${PALETTE.level60.border}`,
+                   }}>
+                <div className="text-[10px] font-bold mb-1" style={{ color: PALETTE.level60.text }}>
+                  نزدیک‌ترین زون مهم:
+                </div>
+                <div className="flex items-center justify-between text-[11px]">
+                  <div>
+                    <Badge variant="outline" className="text-[9px] py-0 px-1 ml-1"
+                           style={{
+                             borderColor: data.importantZones.nearestZone.type === 'weekly'
+                               ? PALETTE.level60.border : PALETTE.level40.border,
+                             color: data.importantZones.nearestZone.type === 'weekly'
+                               ? PALETTE.level60.text : PALETTE.level40.text,
+                           }}>
+                      {data.importantZones.nearestZone.type === 'weekly' ? 'هفتگی' : 'روزانه'}
+                    </Badge>
+                    <span className="text-stone-700 mr-1">
+                      {new Date(data.importantZones.nearestZone.date + 'T00:00:00Z').toLocaleDateString('fa-IR', { timeZone: 'UTC' })}
+                    </span>
+                  </div>
+                  <div className="font-bold tabular-nums text-stone-800">
+                    ${data.importantZones.nearestZone.midpoint.toFixed(2)}
+                  </div>
+                </div>
+                {data.importantZones.nearestDistance !== null && (
+                  <div className="mt-2 flex items-center justify-between text-[10px]">
+                    <span className="text-stone-600">
+                      فاصله قیمت لایو تا این زون:
+                    </span>
+                    <span className="font-bold" style={{ color: PALETTE.divergence.text }}>
+                      {data.importantZones.nearestDistance.toFixed(2)}٪
+                      {' '}
+                      ({data.importantZones.nearestDirection === 'above' ? 'بالای قیمت' : 'پایین قیمت'})
+                    </span>
+                  </div>
+                )}
+                {/* Mini proximity bar */}
+                {data.importantZones.nearestDistance !== null && (
+                  <div className="mt-1.5 h-1.5 rounded-full overflow-hidden" style={{ background: BORDER_LIGHT }}>
+                    <div className="h-full"
+                         style={{
+                           width: `${Math.min(100, data.importantZones.nearestDistance * 5)}%`,
+                           background: PALETTE.divergence.bgBar,
+                         }} />
+                  </div>
+                )}
+              </div>
+            ) : null}
+
+            {/* List of zones */}
+            <div className="space-y-1">
+              <div className="text-[10px] font-bold text-stone-500 mb-1">زون‌های مهم نزدیک قیمت فعلی:</div>
+              {data.importantZones.zones.map((z, i) => {
+                const isInside = data.importantZones.insideZones.some(iz => iz.date === z.date && iz.type === z.type);
+                const distPct = (Math.abs(z.midpoint - data.importantZones.currentPrice) / data.importantZones.currentPrice) * 100;
+                const isAbove = z.midpoint > data.importantZones.currentPrice;
+                return (
+                  <div key={i} className="rounded p-1.5"
+                       style={{
+                         background: isInside ? PALETTE.divergence.bgSoft : BG_LIGHTER,
+                         border: `1px solid ${isInside ? PALETTE.divergence.border : BORDER_LIGHT}`,
+                       }}>
+                    <div className="flex items-center justify-between text-[10px]">
+                      <div className="flex items-center gap-1">
+                        <Badge variant="outline" className="text-[8px] py-0 px-1"
+                               style={{
+                                 borderColor: z.type === 'weekly' ? PALETTE.level60.border : PALETTE.level40.border,
+                                 color: z.type === 'weekly' ? PALETTE.level60.text : PALETTE.level40.text,
+                               }}>
+                          {z.type === 'weekly' ? 'هفتگی' : 'روزانه'}
+                        </Badge>
+                        <span className="text-stone-500">
+                          {new Date(z.date + 'T00:00:00Z').toLocaleDateString('fa-IR', {
+                            month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC',
+                          })}
+                        </span>
+                      </div>
+                      <div className="font-bold tabular-nums text-stone-800">
+                        ${z.midpoint.toFixed(2)}
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between text-[9px] mt-0.5">
+                      <span className="text-stone-400">
+                        زون: ${z.rangeLow.toFixed(2)} - ${z.rangeHigh.toFixed(2)}
+                      </span>
+                      <span className="font-bold"
+                            style={{
+                              color: isInside ? PALETTE.divergence.text
+                                     : isAbove ? PALETTE.reversal.text : PALETTE.passThrough.text,
+                            }}>
+                        {isInside ? '✓ داخل زون' : `${distPct.toFixed(2)}٪ ${isAbove ? '↑ بالا' : '↓ پایین'}`}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
         )}
 
         {/* ====== PREVIOUS DAY ANALYSIS ====== */}
@@ -690,15 +1043,15 @@ export default function Home() {
               </div>
             </div>
             <Badge style={{
-              background: data?.pattern?.bias === 'bullish' ? PALETTE.reversal.bgSoft :
-                          data?.pattern?.bias === 'bearish' ? PALETTE.passThrough.bgSoft :
+              background: data?.pattern?.bias === 'bullish' ? '#26a69a' :
+                          data?.pattern?.bias === 'bearish' ? '#ef5350' :
                           BG_LIGHTER,
-              color: data?.pattern?.bias === 'bullish' ? PALETTE.reversal.text :
-                     data?.pattern?.bias === 'bearish' ? PALETTE.passThrough.text :
-                     '#78716c',
+              color: data?.pattern?.bias === 'bullish' || data?.pattern?.bias === 'bearish'
+                ? 'white'
+                : '#78716c',
               border: `1px solid ${
-                data?.pattern?.bias === 'bullish' ? PALETTE.reversal.border :
-                data?.pattern?.bias === 'bearish' ? PALETTE.passThrough.border :
+                data?.pattern?.bias === 'bullish' ? '#26a69a' :
+                data?.pattern?.bias === 'bearish' ? '#ef5350' :
                 BORDER_LIGHT
               }`,
             }}>
@@ -725,8 +1078,9 @@ export default function Home() {
                       style={{
                         bottom: `${100 - bodyTop}%`,
                         height: `${Math.max(2, bodyTop - bodyBot)}%`,
-                        // candle body — dark gray for both up/down (just different opacities)
-                        background: c.isUp ? DARK_GRAY : DARK_GRAY_SOFT,
+                        // Standard green/red candle colors
+                        background: c.isUp ? '#26a69a' : '#ef5350',  // teal/green up, red down
+                        boxShadow: c.isUp ? '0 0 2px rgba(38, 166, 154, 0.3)' : '0 0 2px rgba(239, 83, 80, 0.3)',
                       }}
                     />
                   </div>

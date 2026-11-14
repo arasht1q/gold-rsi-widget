@@ -18,6 +18,8 @@ const TV_SCANNER = 'https://scanner.tradingview.com/symbol?symbol=TVC%3AGOLD&fie
 // Yahoo Finance — historical M30 candles for GC=F (gold futures, for RSI calc)
 const YAHOO_GC_M30 = 'https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=30m&range=10d';
 const YAHOO_GC_M5  = 'https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=5m&range=5d';
+const YAHOO_GC_D1  = 'https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=1d&range=6mo';
+const YAHOO_GC_W1  = 'https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=1wk&range=2y';
 // Fallback
 const BINANCE_PAXG_M30 = 'https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval=30m&limit=300';
 const BINANCE_PAXG_M5  = 'https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval=5m&limit=288';
@@ -195,6 +197,216 @@ function analyzePreviousDay(
   };
 }
 
+// ============================================================
+// Compute which RSI level (40 or 60) is more likely to be touched first
+// Based on: current RSI position, distance to each level, and RSI velocity
+// ============================================================
+function computeTouchFirst(
+  features: any,
+  currentRsi: number,
+): {
+  likelyLevel: 40 | 60;
+  probability40: number;
+  probability60: number;
+  distance40: number;
+  distance60: number;
+  direction: 'up' | 'down' | 'flat';
+  reasoning: string;
+} {
+  if (!features) {
+    return {
+      likelyLevel: 60,
+      probability40: 0.5,
+      probability60: 0.5,
+      distance40: Math.abs(currentRsi - 40),
+      distance60: Math.abs(currentRsi - 60),
+      direction: 'flat',
+      reasoning: 'داده کافی نیست',
+    };
+  }
+
+  const d40 = Math.abs(currentRsi - 40);
+  const d60 = Math.abs(currentRsi - 60);
+  const velocity = features.rsiVelocity10 ?? 0;
+
+  // If currently in a zone, that zone is "touched"
+  if (features.inZone && features.zoneLevel === 40) {
+    return {
+      likelyLevel: 40, probability40: 1, probability60: 0,
+      distance40: 0, distance60: d60,
+      direction: velocity > 0.5 ? 'up' : velocity < -0.5 ? 'down' : 'flat',
+      reasoning: 'همین الان داخل زون ۴۰ هستیم',
+    };
+  }
+  if (features.inZone && features.zoneLevel === 60) {
+    return {
+      likelyLevel: 60, probability40: 0, probability60: 1,
+      distance40: d40, distance60: 0,
+      direction: velocity > 0.5 ? 'up' : velocity < -0.5 ? 'down' : 'flat',
+      reasoning: 'همین الان داخل زون ۶۰ هستیم',
+    };
+  }
+
+  // Probability based on distance + velocity
+  // Base score: closer level = higher probability
+  // Velocity bias: if rising, more likely to hit 60; if falling, more likely to hit 40
+  const totalDist = d40 + d60;
+  const base40 = totalDist > 0 ? (1 - d40 / totalDist) : 0.5;  // closer = higher
+  const base60 = totalDist > 0 ? (1 - d60 / totalDist) : 0.5;
+
+  // Velocity adjustment: each unit of velocity shifts 5% probability
+  // velocity > 0 = rising → favors 60
+  // velocity < 0 = falling → favors 40
+  const velocityAdj = velocity * 0.05;
+  let p60 = base60 + velocityAdj;
+  let p40 = base40 - velocityAdj;
+
+  // Normalize to 0..1
+  p60 = Math.max(0.05, Math.min(0.95, p60));
+  p40 = Math.max(0.05, Math.min(0.95, p40));
+  const sum = p40 + p60;
+  p40 /= sum;
+  p60 /= sum;
+
+  const likelyLevel = p60 > p40 ? 60 : 40;
+  const direction = velocity > 0.5 ? 'up' : velocity < -0.5 ? 'down' : 'flat';
+
+  let reasoning = '';
+  if (Math.abs(p60 - p40) < 0.1) {
+    reasoning = 'احتمال هر دو سطح تقریباً برابر است';
+  } else if (likelyLevel === 60) {
+    reasoning = `RSI به سطح ۶۰ نزدیک‌تر است (${d60.toFixed(1)} واحد)`;
+    if (direction === 'up') reasoning += ' و در حال صعود';
+    else if (direction === 'down') reasoning += ' ولی در حال نزول';
+  } else {
+    reasoning = `RSI به سطح ۴۰ نزدیک‌تر است (${d40.toFixed(1)} واحد)`;
+    if (direction === 'down') reasoning += ' و در حال نزول';
+    else if (direction === 'up') reasoning += ' ولی در حال صعود';
+  }
+
+  return {
+    likelyLevel: likelyLevel as 40 | 60,
+    probability40: p40,
+    probability60: p60,
+    distance40: d40,
+    distance60: d60,
+    direction,
+    reasoning,
+  };
+}
+
+// ============================================================
+// Important zones from Doji candles (daily + weekly)
+// ============================================================
+
+type ImportantZone = {
+  type: 'daily' | 'weekly';
+  date: string;             // YYYY-MM-DD of the Doji candle
+  open: number;
+  close: number;
+  midpoint: number;         // (open + close) / 2 — the zone center
+  rangeHigh: number;        // max(open, close)
+  rangeLow: number;         // min(open, close)
+  candleRange: number;      // high - low of the Doji candle
+  bodySize: number;         // |close - open|
+  bodyRatio: number;        // bodySize / candleRange (Doji threshold: < 0.1)
+};
+
+type ZoneAnalysis = {
+  zones: ImportantZone[];         // sorted by proximity to current price
+  insideZones: ImportantZone[];   // zones the current price is inside
+  nearestZone: ImportantZone | null;
+  nearestDistance: number | null;  // % distance to nearest zone
+  nearestDirection: 'above' | 'below' | 'inside' | null;
+};
+
+// Detect Doji candles in a list of candles
+// Doji = body <= bodyThreshold * range (default 10%)
+function detectDojis(candles: Candle[], bodyThreshold = 0.10): Candle[] {
+  return candles.filter(c => {
+    const range = c.high - c.low;
+    if (range <= 0) return false;
+    const body = Math.abs(c.close - c.open);
+    return body <= bodyThreshold * range;
+  });
+}
+
+// Build ImportantZone from a Doji candle
+function buildZone(candle: Candle, type: 'daily' | 'weekly'): ImportantZone {
+  const range = candle.high - candle.low;
+  const body = Math.abs(candle.close - candle.open);
+  return {
+    type,
+    date: utcDateString(candle.openTime),
+    open: candle.open,
+    close: candle.close,
+    midpoint: (candle.open + candle.close) / 2,
+    rangeHigh: Math.max(candle.open, candle.close),
+    rangeLow: Math.min(candle.open, candle.close),
+    candleRange: range,
+    bodySize: body,
+    bodyRatio: range > 0 ? body / range : 0,
+  };
+}
+
+function analyzeImportantZones(
+  dailyCandles: Candle[],
+  weeklyCandles: Candle[],
+  currentPrice: number,
+): ZoneAnalysis {
+  // Detect Dojis
+  const dailyDojis = detectDojis(dailyCandles.slice(0, -1));   // exclude current incomplete day
+  const weeklyDojis = detectDojis(weeklyCandles.slice(0, -1)); // exclude current incomplete week
+
+  const dailyZones = dailyDojis.map(c => buildZone(c, 'daily'));
+  const weeklyZones = weeklyDojis.map(c => buildZone(c, 'weekly'));
+  const allZones = [...dailyZones, ...weeklyZones];
+
+  if (allZones.length === 0) {
+    return { zones: [], insideZones: [], nearestZone: null, nearestDistance: null, nearestDirection: null };
+  }
+
+  // Only keep zones within ±10% of current price (to keep list manageable)
+  const filterWindow = currentPrice * 0.10;
+  const relevantZones = allZones.filter(z =>
+    Math.abs(z.midpoint - currentPrice) <= filterWindow
+  );
+
+  // Find zones we're inside (price within [rangeLow, rangeHigh] + small tolerance)
+  // Tolerance: 0.15% of price (about $6 at $3800)
+  const insideTolerance = currentPrice * 0.0015;
+  const insideZones = relevantZones.filter(z =>
+    currentPrice >= z.rangeLow - insideTolerance &&
+    currentPrice <= z.rangeHigh + insideTolerance
+  );
+
+  // Sort by proximity to current price (closest first)
+  const sortedZones = relevantZones.sort((a, b) => {
+    const distA = Math.abs(a.midpoint - currentPrice);
+    const distB = Math.abs(b.midpoint - currentPrice);
+    return distA - distB;
+  });
+
+  // Nearest zone (excluding ones we're inside)
+  const nearestNonInside = sortedZones.find(z => !insideZones.includes(z));
+  let nearestDistance: number | null = null;
+  let nearestDirection: 'above' | 'below' | 'inside' | null = null;
+  if (nearestNonInside) {
+    nearestDistance = (Math.abs(nearestNonInside.midpoint - currentPrice) / currentPrice) * 100;
+    nearestDirection = nearestNonInside.midpoint > currentPrice ? 'above' : 'below';
+  } else if (insideZones.length > 0) {
+    nearestDirection = 'inside';
+  }
+
+  return {
+    zones: sortedZones.slice(0, 8),  // top 8 nearest
+    insideZones,
+    nearestZone: nearestNonInside || (insideZones.length > 0 ? insideZones[0] : null),
+    nearestDistance,
+    nearestDirection,
+  };
+}
+
 async function fetchTradingView(): Promise<TVQuote | null> {
   // Retry up to 3 times to handle 429 rate limiting
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -316,13 +528,20 @@ export async function GET() {
   }
 
   // 2. Get historical candles from Yahoo for RSI computation
+  // Also fetch daily and weekly candles for Doji zone detection
+  let dailyCandles: Candle[] = [];
+  let weeklyCandles: Candle[] = [];
   try {
-    const [m30, m5] = await Promise.all([
+    const [m30, m5, d1, w1] = await Promise.all([
       fetchYahoo(YAHOO_GC_M30),
       fetchYahoo(YAHOO_GC_M5),
+      fetchYahoo(YAHOO_GC_D1).catch(() => ({ candles: [] as Candle[], marketPrice: null })),
+      fetchYahoo(YAHOO_GC_W1).catch(() => ({ candles: [] as Candle[], marketPrice: null })),
     ]);
     candles30m = m30.candles;
     candles5m = m5.candles;
+    dailyCandles = d1.candles;
+    weeklyCandles = w1.candles;
   } catch {
     candleSource = 'Binance PAXG (Yahoo unavailable)';
     try {
@@ -434,6 +653,9 @@ export async function GET() {
     }
   }
 
+  // Analyze important zones from daily + weekly Doji candles
+  const zoneAnalysis = analyzeImportantZones(dailyCandles, weeklyCandles, lastPrice);
+
   // Detect if market is currently closed (no recent candle in last 2 hours)
   const now = Date.now();
   const lastCandleAgeMin = (now - lastCandle.openTime) / 60000;
@@ -542,6 +764,17 @@ export async function GET() {
     } : null,
     approach40,
     approach60,
+    // Combined prediction: which level likely to be touched first
+    touchFirst: computeTouchFirst(features, lastRsi),
+    // Important zones from Doji candles
+    importantZones: {
+      zones: zoneAnalysis.zones,
+      insideZones: zoneAnalysis.insideZones,
+      nearestZone: zoneAnalysis.nearestZone,
+      nearestDistance: zoneAnalysis.nearestDistance,
+      nearestDirection: zoneAnalysis.nearestDirection,
+      currentPrice: lastPrice,
+    },
     // Previous day analysis
     prevDay: prevDay ? {
       date: prevDay.date,
