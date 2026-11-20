@@ -94,8 +94,8 @@ buySignal  = enteredZone40
 sellSignal = enteredZone60
 
 // Plot signals on the RSI pane
-plotshape(showSigs and buySignal, title="Buy Signal", style=shape.triangleup, location=location.absolute, color=color.new(color.lime, 0), size=size.tiny, text="B40", textcolor=color.lime, textsize=size.tiny)
-plotshape(showSigs and sellSignal, title="Sell Signal", style=shape.triangledown, location=location.absolute, color=color.new(color.red, 0), size=size.tiny, text="S60", textcolor=color.red, textsize=size.tiny)
+plotshape(showSigs and buySignal, title="Buy Signal", style=shape.triangleup, location=location.absolute, color=color.new(color.lime, 0), size=size.tiny, text="B40", textcolor=color.lime)
+plotshape(showSigs and sellSignal, title="Sell Signal", style=shape.triangledown, location=location.absolute, color=color.new(color.red, 0), size=size.tiny, text="S60", textcolor=color.red)
 
 // ===================================================================
 // PREDICTION (based on 2-year backtest)
