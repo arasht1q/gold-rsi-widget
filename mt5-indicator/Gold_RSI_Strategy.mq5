@@ -10,17 +10,19 @@
 #property indicator_buffers 2
 #property indicator_plots   2
 
-#property indicator_label1  "RSI(30)"
+//--- RSI(14) — first (reference, thin dotted)
+#property indicator_label1  "RSI(14)"
 #property indicator_type1   DRAW_LINE
-#property indicator_color1  clrSteelBlue
-#property indicator_style1  STYLE_SOLID
-#property indicator_width1  2
+#property indicator_color1  clrLightSkyBlue
+#property indicator_style1  STYLE_DOT
+#property indicator_width1  1
 
-#property indicator_label2  "RSI(14)"
+//--- RSI(30) — second (primary strategy, thick solid)
+#property indicator_label2  "RSI(30)"
 #property indicator_type2   DRAW_LINE
-#property indicator_color2  clrLightSkyBlue
-#property indicator_style2  STYLE_DOT
-#property indicator_width2  1
+#property indicator_color2  clrSteelBlue
+#property indicator_style2  STYLE_SOLID
+#property indicator_width2  2
 
 #property indicator_level1  40.0
 #property indicator_level2  60.0
@@ -35,13 +37,16 @@ input double   InpLevelOversold    = 40.0;
 input double   InpLevelOverbought  = 60.0;
 input double   InpZoneTolerance    = 1.0;
 input double   InpDojiThreshold    = 0.10;
-input int      InpLookbackH4       = 200;      // H4 candles to scan
-input int      InpLookbackDays     = 180;
-input int      InpLookbackWeeks    = 52;
+input int      InpLookbackH4       = 300;      // H4 candles to scan (increased)
+input int      InpLookbackDays     = 365;      // 1 year daily (increased)
+input int      InpLookbackWeeks    = 104;      // 2 years weekly (increased)
 input double   InpZoneFilter       = 25.0;
 input int      InpMaxZonesToShow   = 15;
-input double   InpOverlapThreshold = 0.3;      // Zones within this % are "overlapping" — show only newest
+input double   InpOverlapThreshold = 0.3;
 input int      InpSignalCount      = 50;
+input bool     InpDeepSearch       = true;     // If no zones nearby, search deeper
+input double   InpDeepSearchStep   = 5.0;      // Each step adds this % to search radius
+input int      InpDeepSearchMax    = 100;      // Max search radius %
 input bool     InpShowZones        = true;
 input bool     InpShowH4Zones      = true;     // Show H4 Doji zones
 input bool     InpShowDailyZones   = true;
@@ -58,9 +63,9 @@ input bool     InpAlertOnRSI       = true;
 input bool     InpAlertOnZone      = true;
 input bool     InpAlertOnPattern   = true;
 
-//--- Buffers
-double RSI30_Buffer[];
+//--- Buffers (swapped: 0=RSI14, 1=RSI30)
 double RSI14_Buffer[];
+double RSI30_Buffer[];
 
 //--- Globals
 int rsi30_handle = INVALID_HANDLE;
@@ -115,10 +120,10 @@ double base_rates[3] = {0.329, 0.210, 0.461};
 //+------------------------------------------------------------------+
 int OnInit()
 {
-   SetIndexBuffer(0, RSI30_Buffer, INDICATOR_DATA);
-   SetIndexBuffer(1, RSI14_Buffer, INDICATOR_DATA);
-   PlotIndexSetString(0, PLOT_LABEL, "RSI(30)");
-   PlotIndexSetString(1, PLOT_LABEL, "RSI(14)");
+   SetIndexBuffer(0, RSI14_Buffer, INDICATOR_DATA);
+   SetIndexBuffer(1, RSI30_Buffer, INDICATOR_DATA);
+   PlotIndexSetString(0, PLOT_LABEL, "RSI(14)");
+   PlotIndexSetString(1, PLOT_LABEL, "RSI(30)");
    IndicatorSetDouble(INDICATOR_LEVELVALUE, 0, InpLevelOversold);
    IndicatorSetDouble(INDICATOR_LEVELVALUE, 1, InpLevelOverbought);
    IndicatorSetString(INDICATOR_SHORTNAME, "RSI(30)+RSI(14) M30 Strategy");
@@ -198,8 +203,8 @@ int OnCalculate(const int rates_total, const int prev_calculated,
                 const double &close[], const long &tick_volume[],
                 const long &volume[], const int &spread[])
 {
-   int c30 = CopyBuffer(rsi30_handle, 0, 0, rates_total, RSI30_Buffer);
    int c14 = CopyBuffer(rsi14_handle, 0, 0, rates_total, RSI14_Buffer);
+   int c30 = CopyBuffer(rsi30_handle, 0, 0, rates_total, RSI30_Buffer);
    
    if(c30 <= 0 || c14 <= 0)
    {
@@ -366,7 +371,40 @@ void DeduplicateZones()
    double cp = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    if(cp <= 0) cp = 1000;
    
-   double fw = cp * (InpZoneFilter / 100.0);
+   // Determine search radius — use deep search if enabled
+   double searchPct = InpZoneFilter;
+   if(InpDeepSearch)
+   {
+      // Count zones within initial filter
+      int count = 0;
+      double fw0 = cp * (InpZoneFilter / 100.0);
+      for(int i = 0; i < g_zone_count; i++)
+      {
+         if(g_zones[i].time >= TimeCurrent()) continue;
+         if(MathAbs(g_zones[i].midpoint - cp) <= fw0) count++;
+      }
+      
+      // If fewer than 3 zones found, expand search
+      if(count < 3)
+      {
+         double step = InpDeepSearchStep;
+         double maxPct = InpDeepSearchMax;
+         while(count < 3 && searchPct < maxPct)
+         {
+            searchPct += step;
+            double fw = cp * (searchPct / 100.0);
+            count = 0;
+            for(int i = 0; i < g_zone_count; i++)
+            {
+               if(g_zones[i].time >= TimeCurrent()) continue;
+               if(MathAbs(g_zones[i].midpoint - cp) <= fw) count++;
+            }
+         }
+         Print("[Gold RSI] Deep search: expanded to ", searchPct, "% to find ", count, " zones");
+      }
+   }
+   
+   double fw = cp * (searchPct / 100.0);
    
    // Filter zones within range
    DojiZone filtered[];
@@ -396,7 +434,7 @@ void DeduplicateZones()
       }
    }
    
-   // Remove overlapping zones — keep the one with LATER time (newer)
+   // Remove overlapping zones — keep the NEWER one
    bool removed[];
    ArrayResize(removed, fcount);
    for(int i = 0; i < fcount; i++) removed[i] = false;
@@ -409,20 +447,17 @@ void DeduplicateZones()
       for(int j = i + 1; j < fcount; j++)
       {
          if(removed[j]) continue;
-         // Check if zones overlap
          double midDist = MathAbs(filtered[i].midpoint - filtered[j].midpoint);
          if(midDist < overlapDist)
          {
-            // They overlap — keep the NEWER one (later time)
             if(filtered[j].time > filtered[i].time)
-               removed[i] = true; // j is newer, remove i
+               removed[i] = true;
             else
-               removed[j] = true; // i is newer, remove j
+               removed[j] = true;
          }
       }
    }
    
-   // Build final array
    for(int i = 0; i < fcount; i++)
    {
       if(removed[i]) continue;
@@ -495,16 +530,18 @@ void DrawSignals()
          ObjectCreate(0, nm, OBJ_ARROW, 0, g_signals[i].time, pp);
       ObjectSetInteger(0, nm, OBJPROP_ARROWCODE, ac);
       ObjectSetInteger(0, nm, OBJPROP_COLOR, cl);
-      ObjectSetInteger(0, nm, OBJPROP_WIDTH, 2);
+      ObjectSetInteger(0, nm, OBJPROP_WIDTH, 1);  // smaller arrows
       ObjectSetInteger(0, nm, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, nm, OBJPROP_TIMEFRAMES, OBJ_ALL_PERIODS); // visible in all timeframes
       
       string ln = "GZ_SIG_L_" + IntegerToString(i);
       if(ObjectFind(0, ln) < 0)
          ObjectCreate(0, ln, OBJ_TEXT, 0, g_signals[i].time, pp);
       ObjectSetString(0, ln, OBJPROP_TEXT, StringFormat("%s%d", g_signals[i].direction==1?"B":"S", g_signals[i].level));
       ObjectSetInteger(0, ln, OBJPROP_COLOR, cl);
-      ObjectSetInteger(0, ln, OBJPROP_FONTSIZE, 8);
+      ObjectSetInteger(0, ln, OBJPROP_FONTSIZE, 6);  // smaller text
       ObjectSetInteger(0, ln, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, ln, OBJPROP_TIMEFRAMES, OBJ_ALL_PERIODS);
    }
 }
 
@@ -547,6 +584,7 @@ void DrawZonesOnChart()
       ObjectSetInteger(0, nm, OBJPROP_BACK, true);
       ObjectSetInteger(0, nm, OBJPROP_WIDTH, 2);
       ObjectSetInteger(0, nm, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, nm, OBJPROP_TIMEFRAMES, OBJ_ALL_PERIODS); // visible in all timeframes
       
       // Label
       string ln = "GZ_ZONE_L_" + IntegerToString(i);
@@ -559,6 +597,7 @@ void DrawZonesOnChart()
       ObjectSetInteger(0, ln, OBJPROP_COLOR, zc);
       ObjectSetInteger(0, ln, OBJPROP_FONTSIZE, 9);
       ObjectSetInteger(0, ln, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, ln, OBJPROP_TIMEFRAMES, OBJ_ALL_PERIODS);
    }
 }
 
