@@ -517,7 +517,9 @@ void DrawPanel()
    
    // Session
    y += 4;
-   int hour = TimeHour(TimeCurrent());
+   MqlDateTime dt;
+   TimeToStruct(TimeCurrent(), dt);
+   int hour = dt.hour;
    int tehran_hour = (hour + 3) % 24;
    string sess = "Night";
    if(tehran_hour >= 6 && tehran_hour < 12) sess = "Morning (Asia)";
