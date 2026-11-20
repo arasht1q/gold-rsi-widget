@@ -58,8 +58,8 @@ rsiVel = rsi30 - rsi30[10]
 buySig = inZ40 and not inZ40[1]
 sellSig = inZ60 and not inZ60[1]
 
-plotshape(showSigs and buySig, "Buy", shape.triangleup, location.absolute, color.lime, size.tiny, "B40", color.lime)
-plotshape(showSigs and sellSig, "Sell", shape.triangledown, location.absolute, color.red, size.tiny, "S60", color.red)
+plotshape(showSigs and buySig, title="Buy", style=shape.triangleup, location=location.absolute, color=color.lime, size=size.tiny, text="B40", textcolor=color.lime)
+plotshape(showSigs and sellSig, title="Sell", style=shape.triangledown, location=location.absolute, color=color.red, size=size.tiny, text="S60", textcolor=color.red)
 
 // === PREDICTION ===
 d40 = math.abs(rsi30 - osLevel)
