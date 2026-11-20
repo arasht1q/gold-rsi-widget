@@ -4,7 +4,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Z.ai"
 #property link      "https://github.com/arasht1q/gold-rsi-widget"
-#property version   "1.50"
+#property version   "1.60"
 #property description "RSI(30)+RSI(14) M30 - Movable Panel - H4/Daily/Weekly Doji Zones - Entry Signals"
 #property indicator_separate_window
 #property indicator_buffers 2
@@ -37,13 +37,13 @@ input double   InpLevelOversold    = 40.0;
 input double   InpLevelOverbought  = 60.0;
 input double   InpZoneTolerance    = 1.0;
 input double   InpDojiThreshold    = 0.10;
-input int      InpLookbackH4       = 300;      // H4 candles to scan (increased)
-input int      InpLookbackDays     = 365;      // 1 year daily (increased)
-input int      InpLookbackWeeks    = 104;      // 2 years weekly (increased)
+input int      InpLookbackH4       = 500;      // H4 candles to scan
+input int      InpLookbackDays     = 912;      // ~2.5 years daily
+input int      InpLookbackWeeks    = 130;      // ~2.5 years weekly
 input double   InpZoneFilter       = 25.0;
 input int      InpMaxZonesToShow   = 15;
 input double   InpOverlapThreshold = 0.3;
-input int      InpSignalCount      = 50;
+input int      InpSignalCount      = 200;     // Show up to 200 past signals (~1 year)
 input bool     InpDeepSearch       = true;     // If no zones nearby, search deeper
 input double   InpDeepSearchStep   = 5.0;      // Each step adds this % to search radius
 input int      InpDeepSearchMax    = 100;      // Max search radius %
@@ -51,9 +51,9 @@ input bool     InpShowZones        = true;
 input bool     InpShowH4Zones      = true;     // Show H4 Doji zones
 input bool     InpShowDailyZones   = true;
 input bool     InpShowWeeklyZones  = true;
-input color    InpH4ZoneColor      = C'160,180,200';     // H4 zone (soft blue-gray)
-input color    InpWeeklyZoneColor  = C'230,160,80';      // Weekly (soft orange)
-input color    InpDailyZoneColor   = C'170,170,175';     // Daily (soft gray)
+input color    InpH4ZoneColor      = C'140,165,215';     // H4 zone (blue)
+input color    InpWeeklyZoneColor  = C'235,155,70';      // Weekly (orange)
+input color    InpDailyZoneColor   = C'165,175,155';     // Daily (green-gray)
 input color    InpPanelBgColor     = C'245,243,238';
 input color    InpPanelTextColor   = C'40,38,35';
 input bool     InpShowPanel        = true;
@@ -79,8 +79,9 @@ datetime g_last_alert_rsi = 0;
 datetime g_last_alert_zone = 0;
 
 //--- Panel position
-int g_panel_x = 10;
-int g_panel_y = 25;
+// Panel default: right side, not too far in corner, lower
+int g_panel_x = 15;
+int g_panel_y = 60;
 
 //--- Zone structure
 struct DojiZone
@@ -113,9 +114,9 @@ struct CatMeans { double cz; double vel; double vol; };
 CatMeans means_40[3]; CatMeans means_60[3];
 double base_rates[3] = {0.329, 0.210, 0.461};
 
-#define PW 255
-#define PH 430
-#define LH 16
+#define PW 225
+#define PH 360
+#define LH 15
 
 //+------------------------------------------------------------------+
 int OnInit()
@@ -126,7 +127,7 @@ int OnInit()
    PlotIndexSetString(1, PLOT_LABEL, "RSI(30)");
    IndicatorSetDouble(INDICATOR_LEVELVALUE, 0, InpLevelOversold);
    IndicatorSetDouble(INDICATOR_LEVELVALUE, 1, InpLevelOverbought);
-   IndicatorSetString(INDICATOR_SHORTNAME, "RSI(30)+RSI(14) M30 Strategy");
+   IndicatorSetString(INDICATOR_SHORTNAME, "RSI(14)+RSI(30) M30 Strategy");
    
    rsi30_handle = iRSI(_Symbol, PERIOD_M30, InpRSIPeriod, PRICE_CLOSE);
    rsi14_handle = iRSI(_Symbol, PERIOD_M30, InpRSI14Period, PRICE_CLOSE);
@@ -475,7 +476,7 @@ void ScanHistoricalSignals()
    
    double rsi[];
    ArraySetAsSeries(rsi, true);
-   int copied = CopyBuffer(rsi30_handle, 0, 0, 2000, rsi);
+   int copied = CopyBuffer(rsi30_handle, 0, 0, 17000, rsi);  // ~1 year of M30 candles
    if(copied <= 0) return;
    
    datetime times[];
@@ -522,7 +523,7 @@ void DrawSignals()
    {
       string nm = "GZ_SIG_" + IntegerToString(i);
       int ac = g_signals[i].direction == 1 ? 233 : 234;
-      color cl = g_signals[i].direction == 1 ? C'91,140,90' : C'181,107,107';
+      color cl = g_signals[i].direction == 1 ? clrLimeGreen : clrCrimson;  // distinct BUY=green, SELL=red
       double off = g_signals[i].price * 0.003;
       double pp = g_signals[i].direction == 1 ? g_signals[i].price - off : g_signals[i].price + off;
       
@@ -618,7 +619,7 @@ void DrawPanel()
    if(ObjectFind(0, bg) < 0)
    {
       ObjectCreate(0, bg, OBJ_RECTANGLE_LABEL, 0, 0, 0);
-      ObjectSetInteger(0, bg, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+      ObjectSetInteger(0, bg, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
       ObjectSetInteger(0, bg, OBJPROP_XDISTANCE, g_panel_x);
       ObjectSetInteger(0, bg, OBJPROP_YDISTANCE, g_panel_y);
       ObjectSetInteger(0, bg, OBJPROP_XSIZE, PW);
@@ -763,7 +764,7 @@ void PT(string id, int x, int y, string text, color clr, int sz, string font)
    string name = "GZ_PNL_T_" + id;
    if(ObjectFind(0, name) < 0)
       ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
-   ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+   ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
    ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
    ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
    ObjectSetString(0, name, OBJPROP_TEXT, text);
