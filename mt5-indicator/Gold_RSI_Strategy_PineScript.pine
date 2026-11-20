@@ -1,291 +1,236 @@
 //@version=5
-// Gold RSI Strategy — M30
-// RSI(14) + RSI(30) with Doji zones, entry signals, and info panel
-// Based on 2-year statistical backtest (1328 events)
+// Gold RSI Strategy M30 — Pine Script v5
+// RSI(14) + RSI(30) with Doji zones and entry signals
 
-indicator("Gold RSI Strategy M30", shorttitle="RSI(14)+RSI(30)", overlay=false, max_boxes_count=50, max_labels_count=50, max_lines_count=50)
+indicator("Gold RSI Strategy M30", shorttitle="RSI14+RSI30", overlay=false, max_boxes_count=50, max_labels_count=50)
 
 // === INPUTS ===
-len14      = input.int(14, "RSI(14) Period")
-len30      = input.int(30, "RSI(30) Period")
-oversold   = input.float(40.0, "Oversold Level")
-overbought = input.float(60.0, "Overbought Level")
-tolerance  = input.float(1.0, "Zone Tolerance")
+len14 = input.int(14, "RSI 14 Period")
+len30 = input.int(30, "RSI 30 Period")
+osLevel = input.float(40.0, "Oversold")
+obLevel = input.float(60.0, "Overbought")
+tol = input.float(1.0, "Zone Tolerance")
 dojiThresh = input.float(0.10, "Doji Threshold")
-showH4     = input.bool(true, "Show H4 Doji Zones")
-showDaily  = input.bool(true, "Show Daily Doji Zones")
-showWeekly = input.bool(true, "Show Weekly Doji Zones")
-zoneFilter = input.float(25.0, "Zone Filter %")
-showSigs   = input.bool(true, "Show Entry Signals")
-showPanel  = input.bool(true, "Show Info Panel")
-enableAlerts = input.bool(true, "Enable Alerts")
-panelCorner = input.string("top_right", "Panel Position", options=["top_left", "top_right", "bottom_left", "bottom_right"])
+showH4 = input.bool(true, "Show H4 Zones")
+showD1 = input.bool(true, "Show Daily Zones")
+showW1 = input.bool(true, "Show Weekly Zones")
+zFilter = input.float(25.0, "Zone Filter %")
+showSigs = input.bool(true, "Show Signals")
+showPanel = input.bool(true, "Show Panel")
+pCorner = input.string("top_right", "Panel Position", options=["top_left", "top_right", "bottom_left", "bottom_right"])
 
 // === RSI ===
 rsi14 = ta.rsi(close, len14)
 rsi30 = ta.rsi(close, len30)
 
-// RSI(14) first, RSI(30) second
-plot(rsi14, "RSI(14)", color=color.rgb(135, 170, 200), style=plot.style_line, linewidth=1)
-plot(rsi30, "RSI(30)", color=color.rgb(70, 90, 110), style=plot.style_line, linewidth=2)
-
-// Levels
-hline(oversold, "Oversold", color=color.gray, linestyle=hline.style_dashed)
-hline(overbought, "Overbought", color=color.gray, linestyle=hline.style_dashed)
+plot(rsi14, "RSI(14)", color=color.rgb(135, 170, 200), linewidth=1)
+plot(rsi30, "RSI(30)", color=color.rgb(70, 90, 110), linewidth=2)
+hline(osLevel, "OS 40", color=color.gray, linestyle=hline.style_dashed)
+hline(obLevel, "OB 60", color=color.gray, linestyle=hline.style_dashed)
 hline(50, "Mid", color=color.new(color.gray, 70), linestyle=hline.style_dotted)
 
-// Zone highlighting
-lo40 = oversold - tolerance
-hi40 = oversold + tolerance
-lo60 = overbought - tolerance
-hi60 = overbought + tolerance
+// === ZONE STATUS ===
+lo40 = osLevel - tol
+hi40 = osLevel + tol
+lo60 = obLevel - tol
+hi60 = obLevel + tol
+inZ40 = rsi30 >= lo40 and rsi30 <= hi40
+inZ60 = rsi30 >= lo60 and rsi30 <= hi60
 
-inZone40 = rsi30 >= lo40 and rsi30 <= hi40
-inZone60 = rsi30 >= lo60 and rsi30 <= hi60
-inAnyZone = inZone40 or inZone60
+bgcolor(inZ40 ? color.new(color.green, 85) : na)
+bgcolor(inZ60 ? color.new(color.red, 85) : na)
 
-bgcolor(inZone40 ? color.new(color.green, 85) : na, title="Zone 40")
-bgcolor(inZone60 ? color.new(color.red, 85) : na, title="Zone 60")
-
-// === Candles in zone ===
-var int candlesInZone = 0
-var int currentZone = 0
-
-if inZone40
-    currentZone := 40
-    candlesInZone := candlesInZone + 1
-else if inZone60
-    currentZone := 60
-    candlesInZone := candlesInZone + 1
+var int cz = 0
+var int curZone = 0
+if inZ40
+    curZone := 40
+    cz := cz + 1
+else if inZ60
+    curZone := 60
+    cz := cz + 1
 else
-    candlesInZone := 0
-    currentZone := 0
+    cz := 0
+    curZone := 0
 
-rsiVel10 = rsi30 - rsi30[10]
+rsiVel = rsi30 - rsi30[10]
 
-// === ENTRY SIGNALS ===
-enteredZone40 = inZone40 and not inZone40[1]
-enteredZone60 = inZone60 and not inZone60[1]
+// === SIGNALS ===
+buySig = inZ40 and not inZ40[1]
+sellSig = inZ60 and not inZ60[1]
 
-buySignal  = enteredZone40
-sellSignal = enteredZone60
-
-plotshape(showSigs and buySignal, title="Buy", style=shape.triangleup, location=location.absolute, color=color.lime, size=size.tiny, text="B40", textcolor=color.lime)
-plotshape(showSigs and sellSignal, title="Sell", style=shape.triangledown, location=location.absolute, color=color.red, size=size.tiny, text="S60", textcolor=color.red)
+plotshape(showSigs and buySig, "Buy", shape.triangleup, location.absolute, color.lime, size.tiny, "B40", color.lime)
+plotshape(showSigs and sellSig, "Sell", shape.triangledown, location.absolute, color.red, size.tiny, "S60", color.red)
 
 // === PREDICTION ===
-d40 = math.abs(rsi30 - oversold)
-d60 = math.abs(rsi30 - overbought)
-likelyLevel = d40 < d60 ? 40 : 60
+d40 = math.abs(rsi30 - osLevel)
+d60 = math.abs(rsi30 - obLevel)
+likely = d40 < d60 ? 40 : 60
 
-// Simple distance-based prediction
-cz = candlesInZone
-vel = rsiVel10
+// Means from backtest
+mRevCz = likely == 40 ? 1.61 : 1.54
+mRevVel = likely == 40 ? -2.03 : 1.67
+mDivCz = likely == 40 ? 2.78 : 2.17
+mDivVel = likely == 40 ? -3.45 : 3.05
+mPasCz = likely == 40 ? 1.78 : 1.83
+mPasVel = likely == 40 ? -3.40 : 2.16
 
-// Means for level 40
-m40_rev_cz = 1.61, m40_rev_vel = -2.03
-m40_div_cz = 2.78, m40_div_vel = -3.45
-m40_pas_cz = 1.78, m40_pas_vel = -3.40
+dRev = math.sqrt(math.pow((cz - mRevCz) / 3.0, 2) * 3.0 + math.pow((rsiVel - mRevVel) / 4.0, 2))
+dDiv = math.sqrt(math.pow((cz - mDivCz) / 3.0, 2) * 3.0 + math.pow((rsiVel - mDivVel) / 4.0, 2))
+dPas = math.sqrt(math.pow((cz - mPasCz) / 3.0, 2) * 3.0 + math.pow((rsiVel - mPasVel) / 4.0, 2))
 
-// Means for level 60
-m60_rev_cz = 1.54, m60_rev_vel = 1.67
-m60_div_cz = 2.17, m60_div_vel = 3.05
-m60_pas_cz = 1.83, m60_pas_vel = 2.16
+iRev = 1.0 / (dRev + 0.3)
+iDiv = 1.0 / (dDiv + 0.3)
+iPas = 1.0 / (dPas + 0.3)
+sInv = iRev + iDiv + iPas
 
-// Calculate distances
-distRev = likelyLevel == 40 ? math.sqrt(math.pow((cz - m40_rev_cz) / 3.0, 2) * 3.0 + math.pow((vel - m40_rev_vel) / 4.0, 2)) : math.sqrt(math.pow((cz - m60_rev_cz) / 3.0, 2) * 3.0 + math.pow((vel - m60_rev_vel) / 4.0, 2))
-distDiv = likelyLevel == 40 ? math.sqrt(math.pow((cz - m40_div_cz) / 3.0, 2) * 3.0 + math.pow((vel - m40_div_vel) / 4.0, 2)) : math.sqrt(math.pow((cz - m60_div_cz) / 3.0, 2) * 3.0 + math.pow((vel - m60_div_vel) / 4.0, 2))
-distPas = likelyLevel == 40 ? math.sqrt(math.pow((cz - m40_pas_cz) / 3.0, 2) * 3.0 + math.pow((vel - m40_pas_vel) / 4.0, 2)) : math.sqrt(math.pow((cz - m60_pas_cz) / 3.0, 2) * 3.0 + math.pow((vel - m60_pas_vel) / 4.0, 2))
+rRev = 0.329 * (iRev / (sInv / 3.0))
+rDiv = 0.210 * (iDiv / (sInv / 3.0))
+rPas = 0.461 * (iPas / (sInv / 3.0))
+sRaw = rRev + rDiv + rPas
 
-invRev  = 1.0 / (distRev + 0.3)
-invDiv  = 1.0 / (distDiv + 0.3)
-invPas  = 1.0 / (distPas + 0.3)
-sumInv  = invRev + invDiv + invPas
+pRev = rRev / sRaw
+pDiv = rDiv / sRaw
+pPas = rPas / sRaw
 
-bRev = 0.329, bDiv = 0.210, bPas = 0.461
+// === DOJI ZONES ===
+// H4
+[h4o, h4c, h4h, h4l, h4t] = request.security(syminfo.tickerid, "240", [open, close, high, low, time])
+var float lastH4 = na
+isNewH4 = na(lastH4) or h4t != lastH4
+lastH4 := h4t
 
-rawRev  = bRev * (invRev / (sumInv / 3.0))
-rawDiv  = bDiv * (invDiv / (sumInv / 3.0))
-rawPas  = bPas * (invPas / (sumInv / 3.0))
-sumRaw  = rawRev + rawDiv + rawPas
+var bool h4Doji = false
+var float h4DojiO = na
+var float h4DojiC = na
 
-probRev  = rawRev / sumRaw
-probDiv  = rawDiv / sumRaw
-probPass = rawPas / sumRaw
+if isNewH4 and not na(h4o[1])
+    h4r = h4h[1] - h4l[1]
+    h4b = math.abs(h4c[1] - h4o[1])
+    h4Doji := h4r > 0 and h4b <= dojiThresh * h4r
+    h4DojiO := h4o[1]
+    h4DojiC := h4c[1]
 
-// === DOJI ZONES (H4, Daily, Weekly) ===
-// Get HTF data
-h4_data = request.security(syminfo.tickerid, "240", [open, close, high, low, time])
-d1_data = request.security(syminfo.tickerid, "D", [open, close, high, low, time])
-w1_data = request.security(syminfo.tickerid, "W", [open, close, high, low, time])
-
-h4_o = h4_data[0], h4_c = h4_data[1], h4_h = h4_data[2], h4_l = h4_data[3], h4_t = h4_data[4]
-d1_o = d1_data[0], d1_c = d1_data[1], d1_h = d1_data[2], d1_l = d1_data[3], d1_t = d1_data[4]
-w1_o = w1_data[0], w1_c = w1_data[1], w1_h = w1_data[2], w1_l = w1_data[3], w1_t = w1_data[4]
-
-// Detect new candles on each TF
-var float lastH4T = na
-var float lastD1T = na
-var float lastW1T = na
-
-isNewH4 = na(lastH4T) or h4_t != lastH4T
-isNewD1 = na(lastD1T) or d1_t != lastD1T
-isNewW1 = na(lastW1T) or w1_t != lastW1T
-
-lastH4T := h4_t
-lastD1T := d1_t
-lastW1T := w1_t
-
-// When new HTF candle starts, check if PREVIOUS was Doji
-// Previous H4 Doji
-prevH4Doji = false
-prevH4O = na
-prevH4C = na
-if isNewH4 and not na(h4_o[1])
-    h4_range = h4_h[1] - h4_l[1]
-    h4_body = math.abs(h4_c[1] - h4_o[1])
-    prevH4Doji := h4_range > 0 and h4_body <= dojiThresh * h4_range
-    prevH4O := h4_o[1]
-    prevH4C := h4_c[1]
-
-// Previous Daily Doji
-prevD1Doji = false
-prevD1O = na
-prevD1C = na
-if isNewD1 and not na(d1_o[1])
-    d1_range = d1_h[1] - d1_l[1]
-    d1_body = math.abs(d1_c[1] - d1_o[1])
-    prevD1Doji := d1_range > 0 and d1_body <= dojiThresh * d1_range
-    prevD1O := d1_o[1]
-    prevD1C := d1_c[1]
-
-// Previous Weekly Doji
-prevW1Doji = false
-prevW1O = na
-prevW1C = na
-if isNewW1 and not na(w1_o[1])
-    w1_range = w1_h[1] - w1_l[1]
-    w1_body = math.abs(w1_c[1] - w1_o[1])
-    prevW1Doji := w1_range > 0 and w1_body <= dojiThresh * w1_range
-    prevW1O := w1_o[1]
-    prevW1C := w1_c[1]
-
-// Draw H4 zone
-if showH4 and prevH4Doji and not na(prevH4O) and not na(prevH4C)
-    zLo = math.min(prevH4O, prevH4C)
-    zHi = math.max(prevH4O, prevH4C)
-    zMid = (prevH4O + prevH4C) / 2
+if showH4 and h4Doji and not na(h4DojiO) and not na(h4DojiC)
+    zLo = math.min(h4DojiO, h4DojiC)
+    zHi = math.max(h4DojiO, h4DojiC)
+    zMid = (h4DojiO + h4DojiC) / 2
     dist = math.abs(zMid - close) / close * 100
-    if dist <= zoneFilter
+    if dist <= zFilter
         box.new(bar_index - 50, zHi, bar_index + 100, zLo, border_color=color.rgb(140, 165, 215), border_width=1, bgcolor=color.rgb(140, 165, 215, 85), extend=extend.right)
-        label.new(bar_index - 50, zHi, "H4 " + str.tostring(prevH4O, "#.##") + "/" + str.tostring(prevH4C, "#.##"), color=color.rgb(140, 165, 215), textcolor=color.white, style=label.style_label_down, size=size.tiny)
+        label.new(bar_index - 50, zHi, "H4 " + str.tostring(h4DojiO, "#.##") + "/" + str.tostring(h4DojiC, "#.##"), color=color.rgb(140, 165, 215), textcolor=color.white, style=label.style_label_down, size=size.tiny)
 
-// Draw Daily zone
-if showDaily and prevD1Doji and not na(prevD1O) and not na(prevD1C)
-    zLo = math.min(prevD1O, prevD1C)
-    zHi = math.max(prevD1O, prevD1C)
-    zMid = (prevD1O + prevD1C) / 2
+// Daily
+[d1o, d1c, d1h, d1l, d1t] = request.security(syminfo.tickerid, "D", [open, close, high, low, time])
+var float lastD1 = na
+isNewD1 = na(lastD1) or d1t != lastD1
+lastD1 := d1t
+
+var bool d1Doji = false
+var float d1DojiO = na
+var float d1DojiC = na
+
+if isNewD1 and not na(d1o[1])
+    d1r = d1h[1] - d1l[1]
+    d1b = math.abs(d1c[1] - d1o[1])
+    d1Doji := d1r > 0 and d1b <= dojiThresh * d1r
+    d1DojiO := d1o[1]
+    d1DojiC := d1c[1]
+
+if showD1 and d1Doji and not na(d1DojiO) and not na(d1DojiC)
+    zLo = math.min(d1DojiO, d1DojiC)
+    zHi = math.max(d1DojiO, d1DojiC)
+    zMid = (d1DojiO + d1DojiC) / 2
     dist = math.abs(zMid - close) / close * 100
-    if dist <= zoneFilter
+    if dist <= zFilter
         box.new(bar_index - 50, zHi, bar_index + 100, zLo, border_color=color.rgb(165, 175, 155), border_width=1, bgcolor=color.rgb(165, 175, 155, 85), extend=extend.right)
-        label.new(bar_index - 50, zHi, "D " + str.tostring(prevD1O, "#.##") + "/" + str.tostring(prevD1C, "#.##"), color=color.rgb(165, 175, 155), textcolor=color.white, style=label.style_label_down, size=size.tiny)
+        label.new(bar_index - 50, zHi, "D " + str.tostring(d1DojiO, "#.##") + "/" + str.tostring(d1DojiC, "#.##"), color=color.rgb(165, 175, 155), textcolor=color.white, style=label.style_label_down, size=size.tiny)
 
-// Draw Weekly zone
-if showWeekly and prevW1Doji and not na(prevW1O) and not na(prevW1C)
-    zLo = math.min(prevW1O, prevW1C)
-    zHi = math.max(prevW1O, prevW1C)
-    zMid = (prevW1O + prevW1C) / 2
+// Weekly
+[w1o, w1c, w1h, w1l, w1t] = request.security(syminfo.tickerid, "W", [open, close, high, low, time])
+var float lastW1 = na
+isNewW1 = na(lastW1) or w1t != lastW1
+lastW1 := w1t
+
+var bool w1Doji = false
+var float w1DojiO = na
+var float w1DojiC = na
+
+if isNewW1 and not na(w1o[1])
+    w1r = w1h[1] - w1l[1]
+    w1b = math.abs(w1c[1] - w1o[1])
+    w1Doji := w1r > 0 and w1b <= dojiThresh * w1r
+    w1DojiO := w1o[1]
+    w1DojiC := w1c[1]
+
+if showW1 and w1Doji and not na(w1DojiO) and not na(w1DojiC)
+    zLo = math.min(w1DojiO, w1DojiC)
+    zHi = math.max(w1DojiO, w1DojiC)
+    zMid = (w1DojiO + w1DojiC) / 2
     dist = math.abs(zMid - close) / close * 100
-    if dist <= zoneFilter
+    if dist <= zFilter
         box.new(bar_index - 50, zHi, bar_index + 100, zLo, border_color=color.rgb(235, 155, 70), border_width=1, bgcolor=color.rgb(235, 155, 70, 85), extend=extend.right)
-        label.new(bar_index - 50, zHi, "W " + str.tostring(prevW1O, "#.##") + "/" + str.tostring(prevW1C, "#.##"), color=color.rgb(235, 155, 70), textcolor=color.white, style=label.style_label_down, size=size.tiny)
+        label.new(bar_index - 50, zHi, "W " + str.tostring(w1DojiO, "#.##") + "/" + str.tostring(w1DojiC, "#.##"), color=color.rgb(235, 155, 70), textcolor=color.white, style=label.style_label_down, size=size.tiny)
 
-// === M5 PATTERN DETECTION ===
+// === PATTERN ===
 cBody = math.abs(close - open)
 cRng = high - low
-cUW = high - math.max(open, close)
-cLW = math.min(open, close) - low
-
-isDoji = cRng > 0 and cBody <= cRng * 0.10
-isBullPin = cLW >= cRng * 0.6 and cBody <= cRng * 0.35
-isBearPin = cUW >= cRng * 0.6 and cBody <= cRng * 0.35
-isBullEng = close[1] < open[1] and close > open and math.max(open, close) >= math.max(open[1], close[1]) and math.min(open, close) <= math.min(open[1], close[1])
-isBearEng = close[1] > open[1] and close < open and math.max(open, close) >= math.max(open[1], close[1]) and math.min(open, close) <= math.min(open[1], close[1])
-
-patternDetected = isDoji or isBullPin or isBearPin or isBullEng or isBearEng
-patternName = isDoji ? "Doji" : isBullPin ? "Bull Pin" : isBearPin ? "Bear Pin" : isBullEng ? "Bull Engulf" : isBearEng ? "Bear Engulf" : "None"
+patName = cRng > 0 and cBody <= cRng * 0.10 ? "Doji" : "None"
 
 // === ENTRY TICKET ===
-entryPrice = close
-slPrice = currentZone == 60 ? close + close * 0.004 : currentZone == 40 ? close - close * 0.004 : na
-tpPrice = currentZone == 60 ? close - close * 0.008 : currentZone == 40 ? close + close * 0.008 : na
-rrRatio = currentZone > 0 and not na(slPrice) and not na(tpPrice) ? math.abs(tpPrice - close) / math.abs(close - slPrice) : na
-dirText = currentZone == 60 ? "SELL" : currentZone == 40 ? "BUY" : "-"
+slP = curZone == 60 ? close + close * 0.004 : curZone == 40 ? close - close * 0.004 : na
+tpP = curZone == 60 ? close - close * 0.008 : curZone == 40 ? close + close * 0.008 : na
+rrR = curZone > 0 and not na(slP) and not na(tpP) ? math.abs(tpP - close) / math.abs(close - slP) : na
+dirT = curZone == 60 ? "SELL" : curZone == 40 ? "BUY" : "-"
 
-// === INFO PANEL ===
-tblPos = panelCorner == "top_left" ? position.top_left : panelCorner == "top_right" ? position.top_right : panelCorner == "bottom_left" ? position.bottom_left : position.bottom_right
+// === PANEL ===
+tblP = pCorner == "top_left" ? position.top_left : pCorner == "top_right" ? position.top_right : pCorner == "bottom_left" ? position.bottom_left : position.bottom_right
 
-var table panel = table.new(tblPos, 2, 16, border_width=1, border_color=color.rgb(180, 175, 170), frame_width=1, frame_color=color.rgb(180, 175, 170))
+var table pnl = table.new(tblP, 2, 14, border_width=1, border_color=color.rgb(180, 175, 170))
 
 if showPanel and barstate.islast
-    bgColor = color.rgb(250, 249, 246)
-    lblColor = color.rgb(120, 115, 110)
-    valColor = color.rgb(50, 45, 40)
+    bg = color.rgb(250, 249, 246)
+    lc = color.rgb(120, 115, 110)
+    vc = color.rgb(50, 45, 40)
     
-    table.cell(panel, 0, 0, "Gold RSI Strategy", text_color=color.rgb(80, 75, 70), text_size=size.normal, bgcolor=bgColor)
-    table.cell(panel, 1, 0, "", bgcolor=bgColor)
+    table.cell(pnl, 0, 0, "Gold RSI Strategy", text_color=color.rgb(80, 75, 70), text_size=size.normal, bgcolor=bg)
+    table.cell(pnl, 1, 0, "", bgcolor=bg)
+    table.cell(pnl, 0, 1, "Price", text_color=lc, text_size=size.small, bgcolor=bg)
+    table.cell(pnl, 1, 1, str.tostring(close, "#.##"), text_color=vc, text_size=size.small, bgcolor=bg)
     
-    table.cell(panel, 0, 1, "Price", text_color=lblColor, text_size=size.small, bgcolor=bgColor)
-    table.cell(panel, 1, 1, str.tostring(close, "#.##"), text_color=valColor, text_size=size.small, bgcolor=bgColor)
+    rc = rsi30 > 60 ? color.rgb(181, 107, 107) : rsi30 < 40 ? color.rgb(91, 140, 90) : vc
+    table.cell(pnl, 0, 2, "RSI(30)", text_color=lc, text_size=size.small, bgcolor=bg)
+    table.cell(pnl, 1, 2, str.tostring(rsi30, "#.##"), text_color=rc, text_size=size.small, bgcolor=bg)
+    table.cell(pnl, 0, 3, "RSI(14)", text_color=lc, text_size=size.small, bgcolor=bg)
+    table.cell(pnl, 1, 3, str.tostring(rsi14, "#.##"), text_color=color.rgb(150, 145, 140), text_size=size.small, bgcolor=bg)
     
-    rsiClr = rsi30 > 60 ? color.rgb(181, 107, 107) : rsi30 < 40 ? color.rgb(91, 140, 90) : valColor
-    table.cell(panel, 0, 2, "RSI(30)", text_color=lblColor, text_size=size.small, bgcolor=bgColor)
-    table.cell(panel, 1, 2, str.tostring(rsi30, "#.##"), text_color=rsiClr, text_size=size.small, bgcolor=bgColor)
+    zT = curZone > 0 ? "Zone " + str.tostring(curZone) + " (" + str.tostring(cz) + ")" : "Near " + str.tostring(likely) + " (" + str.tostring(math.min(d40, d60), "#.#") + ")"
+    table.cell(pnl, 0, 4, "Zone", text_color=lc, text_size=size.small, bgcolor=bg)
+    table.cell(pnl, 1, 4, zT, text_color=color.rgb(150, 145, 140), text_size=size.small, bgcolor=bg)
     
-    table.cell(panel, 0, 3, "RSI(14)", text_color=lblColor, text_size=size.small, bgcolor=bgColor)
-    table.cell(panel, 1, 3, str.tostring(rsi14, "#.##"), text_color=color.rgb(150, 145, 140), text_size=size.small, bgcolor=bgColor)
+    table.cell(pnl, 0, 5, "Likely Level", text_color=lc, text_size=size.small, bgcolor=bg)
+    table.cell(pnl, 1, 5, str.tostring(likely), text_color=color.rgb(80, 80, 110), text_size=size.small, bgcolor=bg)
+    table.cell(pnl, 0, 6, "Reversal", text_color=lc, text_size=size.small, bgcolor=bg)
+    table.cell(pnl, 1, 6, str.tostring(pRev * 100, "#") + "%", text_color=color.rgb(91, 140, 90), text_size=size.small, bgcolor=bg)
+    table.cell(pnl, 0, 7, "Divergence", text_color=lc, text_size=size.small, bgcolor=bg)
+    table.cell(pnl, 1, 7, str.tostring(pDiv * 100, "#") + "%", text_color=color.rgb(192, 138, 90), text_size=size.small, bgcolor=bg)
+    table.cell(pnl, 0, 8, "Pass-through", text_color=lc, text_size=size.small, bgcolor=bg)
+    table.cell(pnl, 1, 8, str.tostring(pPas * 100, "#") + "%", text_color=color.rgb(181, 107, 107), text_size=size.small, bgcolor=bg)
+    table.cell(pnl, 0, 9, "Pattern", text_color=lc, text_size=size.small, bgcolor=bg)
+    table.cell(pnl, 1, 9, patName, text_color=color.rgb(150, 145, 140), text_size=size.small, bgcolor=bg)
     
-    zoneTxt = currentZone > 0 ? "Zone " + str.tostring(currentZone) + " (" + str.tostring(candlesInZone) + ")" : "Near " + str.tostring(likelyLevel) + " (" + str.tostring(math.min(d40, d60), "#.#") + ")"
-    table.cell(panel, 0, 4, "Zone", text_color=lblColor, text_size=size.small, bgcolor=bgColor)
-    table.cell(panel, 1, 4, zoneTxt, text_color=color.rgb(150, 145, 140), text_size=size.small, bgcolor=bgColor)
-    
-    table.cell(panel, 0, 5, "--- Prediction ---", text_color=color.rgb(80, 75, 70), text_size=size.small, bgcolor=bgColor)
-    table.cell(panel, 1, 5, "", bgcolor=bgColor)
-    
-    table.cell(panel, 0, 6, "Likely", text_color=lblColor, text_size=size.small, bgcolor=bgColor)
-    table.cell(panel, 1, 6, str.tostring(likelyLevel), text_color=color.rgb(80, 80, 110), text_size=size.small, bgcolor=bgColor)
-    
-    table.cell(panel, 0, 7, "Reversal", text_color=lblColor, text_size=size.small, bgcolor=bgColor)
-    table.cell(panel, 1, 7, str.tostring(probRev * 100, "#") + "%", text_color=color.rgb(91, 140, 90), text_size=size.small, bgcolor=bgColor)
-    
-    table.cell(panel, 0, 8, "Divergence", text_color=lblColor, text_size=size.small, bgcolor=bgColor)
-    table.cell(panel, 1, 8, str.tostring(probDiv * 100, "#") + "%", text_color=color.rgb(192, 138, 90), text_size=size.small, bgcolor=bgColor)
-    
-    table.cell(panel, 0, 9, "Pass-through", text_color=lblColor, text_size=size.small, bgcolor=bgColor)
-    table.cell(panel, 1, 9, str.tostring(probPass * 100, "#") + "%", text_color=color.rgb(181, 107, 107), text_size=size.small, bgcolor=bgColor)
-    
-    table.cell(panel, 0, 10, "Pattern", text_color=lblColor, text_size=size.small, bgcolor=bgColor)
-    table.cell(panel, 1, 10, patternName, text_color=patternDetected ? color.rgb(192, 138, 90) : color.rgb(150, 145, 140), text_size=size.small, bgcolor=bgColor)
-    
-    if currentZone > 0
-        table.cell(panel, 0, 11, "--- Ticket ---", text_color=color.rgb(80, 75, 70), text_size=size.small, bgcolor=bgColor)
-        table.cell(panel, 1, 11, "", bgcolor=bgColor)
-        
-        table.cell(panel, 0, 12, "Direction", text_color=lblColor, text_size=size.small, bgcolor=bgColor)
-        table.cell(panel, 1, 12, dirText, text_color=dirText == "BUY" ? color.rgb(91, 140, 90) : color.rgb(181, 107, 107), text_size=size.small, bgcolor=bgColor)
-        
-        table.cell(panel, 0, 13, "Entry", text_color=lblColor, text_size=size.small, bgcolor=bgColor)
-        table.cell(panel, 1, 13, str.tostring(entryPrice, "#.##"), text_color=valColor, text_size=size.small, bgcolor=bgColor)
-        
-        table.cell(panel, 0, 14, "SL / TP", text_color=lblColor, text_size=size.small, bgcolor=bgColor)
-        table.cell(panel, 1, 14, str.tostring(slPrice, "#.##") + " / " + str.tostring(tpPrice, "#.##"), text_color=valColor, text_size=size.small, bgcolor=bgColor)
-        
-        table.cell(panel, 0, 15, "R:R", text_color=lblColor, text_size=size.small, bgcolor=bgColor)
-        table.cell(panel, 1, 15, "1:" + str.tostring(rrRatio, "#.##"), text_color=color.rgb(192, 138, 90), text_size=size.small, bgcolor=bgColor)
+    if curZone > 0
+        table.cell(pnl, 0, 10, "Direction", text_color=lc, text_size=size.small, bgcolor=bg)
+        table.cell(pnl, 1, 10, dirT, text_color=dirT == "BUY" ? color.rgb(91, 140, 90) : color.rgb(181, 107, 107), text_size=size.small, bgcolor=bg)
+        table.cell(pnl, 0, 11, "Entry", text_color=lc, text_size=size.small, bgcolor=bg)
+        table.cell(pnl, 1, 11, str.tostring(close, "#.##"), text_color=vc, text_size=size.small, bgcolor=bg)
+        table.cell(pnl, 0, 12, "SL / TP", text_color=lc, text_size=size.small, bgcolor=bg)
+        table.cell(pnl, 1, 12, str.tostring(slP, "#.##") + " / " + str.tostring(tpP, "#.##"), text_color=vc, text_size=size.small, bgcolor=bg)
+        table.cell(pnl, 0, 13, "R:R", text_color=lc, text_size=size.small, bgcolor=bg)
+        table.cell(pnl, 1, 13, "1:" + str.tostring(rrR, "#.##"), text_color=color.rgb(192, 138, 90), text_size=size.small, bgcolor=bg)
 
 // === ALERTS ===
-alertcondition(buySignal, title="RSI Buy (Zone 40)", message="RSI entered zone 40 — BUY. Price: {{close}}")
-alertcondition(sellSignal, title="RSI Sell (Zone 60)", message="RSI entered zone 60 — SELL. Price: {{close}}")
-alertcondition(enableAlerts and patternDetected and inAnyZone, title="Pattern in Zone", message="Pattern " + patternName + " while RSI in zone")
-alertcondition(enableAlerts and prevD1Doji and isNewD1, title="Daily Doji", message="Daily Doji formed")
-alertcondition(enableAlerts and prevW1Doji and isNewW1, title="Weekly Doji", message="Weekly Doji formed")
+alertcondition(buySig, "RSI Buy Zone 40", "RSI entered zone 40 — BUY")
+alertcondition(sellSig, "RSI Sell Zone 60", "RSI entered zone 60 — SELL")
+alertcondition(h4Doji and isNewH4, "H4 Doji", "H4 Doji zone formed")
+alertcondition(d1Doji and isNewD1, "Daily Doji", "Daily Doji zone formed")
+alertcondition(w1Doji and isNewW1, "Weekly Doji", "Weekly Doji zone formed")
