@@ -1,24 +1,24 @@
 //+------------------------------------------------------------------+
 //|                                         Gold_RSI_Strategy.mq5    |
 //|                  RSI(30) M30 Strategy with Doji Zones for MT5    |
-//|              RSI(30) + RSI(14) | Pastel theme | Transparent UI   |
+//|       RSI(30)+RSI(14) | Persian UI | Entry Signals | Pastel      |
 //+------------------------------------------------------------------+
 #property copyright "Z.ai - Gold RSI Widget"
 #property link      "https://github.com/arasht1q/gold-rsi-widget"
-#property version   "1.10"
-#property description "RSI(30)+RSI(14) M30 strategy with Doji zones"
+#property version   "1.20"
+#property description "RSI(30)+RSI(14) M30 strategy - Persian - Doji zones - Entry signals"
 #property indicator_separate_window
 #property indicator_buffers 2
 #property indicator_plots   2
 
-//--- RSI(30) — primary strategy line (soft dark)
+//--- RSI(30) — primary strategy line
 #property indicator_label1  "RSI(30)"
 #property indicator_type1   DRAW_LINE
 #property indicator_color1  C'90,90,100'
 #property indicator_style1  STYLE_SOLID
 #property indicator_width1  2
 
-//--- RSI(14) — reference line (soft blue, dotted)
+//--- RSI(14) — reference line
 #property indicator_label2  "RSI(14)"
 #property indicator_type2   DRAW_LINE
 #property indicator_color2  C'135,170,200'
@@ -31,24 +31,26 @@
 #property indicator_levelstyle STYLE_DASH
 
 //--- Input Parameters
-input int      InpRSIPeriod        = 30;       // RSI(30) period (main strategy)
-input int      InpRSI14Period      = 14;       // RSI(14) period (reference)
+input int      InpRSIPeriod        = 30;       // RSI(30) period
+input int      InpRSI14Period      = 14;       // RSI(14) period
 input double   InpLevelOversold    = 40.0;     // Oversold level
 input double   InpLevelOverbought  = 60.0;     // Overbought level
-input double   InpZoneTolerance    = 1.0;      // Zone tolerance (+/- units)
-input double   InpDojiThreshold    = 0.10;     // Doji body/range threshold (10%)
+input double   InpZoneTolerance    = 1.0;      // Zone tolerance
+input double   InpDojiThreshold    = 0.10;     // Doji threshold (10%)
 input int      InpLookbackDays     = 90;       // Days to scan for daily Dojis
 input int      InpLookbackWeeks    = 26;       // Weeks to scan for weekly Dojis
-input bool     InpShowZones        = true;     // Draw Doji zones on chart
+input int      InpSignalCount      = 50;       // Number of past entry signals to show
+input bool     InpShowZones        = true;     // Draw Doji zones
 input bool     InpShowDailyZones   = true;     // Show daily Doji zones
 input bool     InpShowWeeklyZones  = true;     // Show weekly Doji zones
-input color    InpWeeklyZoneColor  = C'245,184,122'; // Weekly zone (soft orange)
-input color    InpDailyZoneColor   = C'200,200,200';  // Daily zone (soft gray)
+input color    InpWeeklyZoneColor  = C'245,184,122'; // Weekly zone color
+input color    InpDailyZoneColor   = C'200,200,200';  // Daily zone color
 input bool     InpShowPanel        = true;     // Show info panel
+input bool     InpShowSignals      = true;     // Show entry signals on chart
 input bool     InpEnableAlerts     = true;     // Enable alerts
-input bool     InpAlertOnRSI       = true;     // Alert when RSI enters zone
-input bool     InpAlertOnZone      = true;     // Alert when price enters Doji zone
-input bool     InpAlertOnPattern   = true;     // Alert on M5 pattern when RSI in zone
+input bool     InpAlertOnRSI       = true;     // Alert on RSI zone entry
+input bool     InpAlertOnZone      = true;     // Alert on price entering Doji zone
+input bool     InpAlertOnPattern   = true;     // Alert on M5 pattern
 
 //--- Indicator buffers
 double RSI30_Buffer[];
@@ -60,7 +62,6 @@ int rsi14_handle = INVALID_HANDLE;
 double g_rsi = 0;
 double g_rsi14 = 0;
 double g_rsi_vel_10 = 0;
-double g_rsi_vel_5 = 0;
 int g_candles_in_zone = 0;
 int g_current_zone = 0;
 datetime g_last_alert_rsi = 0;
@@ -72,8 +73,6 @@ struct DojiZone
    datetime time;
    double   open;
    double   close;
-   double   high;
-   double   low;
    double   midpoint;
    double   range_high;
    double   range_low;
@@ -84,80 +83,86 @@ struct DojiZone
 DojiZone g_zones[];
 int g_zone_count = 0;
 
-//--- Prediction means (from 2-year backtest)
-struct CategoryMeans
+//--- Signal structure
+struct EntrySignal
 {
-   double candles_in_zone;
-   double rsi_vel_10;
-   double vol_ratio;
+   datetime time;
+   double   price;
+   int      level;     // 40 or 60
+   int      direction; // 1=BUY, -1=SELL
 };
 
-CategoryMeans means_40[3];
-CategoryMeans means_60[3];
+EntrySignal g_signals[];
+int g_signal_count = 0;
+
+//--- Prediction means
+struct CatMeans { double cz; double vel; double vol; };
+CatMeans means_40[3];
+CatMeans means_60[3];
 double base_rates[3] = {0.329, 0.210, 0.461};
 
-//--- Panel layout constants
-#define PANEL_WIDTH   260
-#define PANEL_HEIGHT  380
-#define LINE_H        16
-#define PANEL_X       5
-#define PANEL_Y       20
+//--- Panel constants
+#define PANEL_W   260
+#define PANEL_H   400
+#define LH        16
 
-//+------------------------------------------------------------------+
-//| OnInit                                                           |
+//--- Pastel colors
+color C_TITLE   = C'80,75,70';
+color C_LABEL   = C'120,115,110';
+color C_VALUE   = C'50,45,40';
+color C_REV     = C'91,140,90';
+color C_DIV     = C'192,138,90';
+color C_PASS    = C'181,107,107';
+color C_ALERT   = C'200,100,100';
+color C_BUY     = C'91,140,90';
+color C_SELL    = C'181,107,107';
+color C_MUTED   = C'160,155,150';
+color C_BLUE    = C'90,90,120';
+
 //+------------------------------------------------------------------+
 int OnInit()
 {
    SetIndexBuffer(0, RSI30_Buffer, INDICATOR_DATA);
    SetIndexBuffer(1, RSI14_Buffer, INDICATOR_DATA);
    
-   PlotIndexSetString(0, PLOT_LABEL, "RSI(" + IntegerToString(InpRSIPeriod) + ")");
-   PlotIndexSetString(1, PLOT_LABEL, "RSI(" + IntegerToString(InpRSI14Period) + ")");
+   PlotIndexSetString(0, PLOT_LABEL, "RSI(30)");
+   PlotIndexSetString(1, PLOT_LABEL, "RSI(14)");
    
    IndicatorSetDouble(INDICATOR_LEVELVALUE, 0, InpLevelOversold);
    IndicatorSetDouble(INDICATOR_LEVELVALUE, 1, InpLevelOverbought);
-   IndicatorSetString(INDICATOR_SHORTNAME, "RSI(30)+RSI(14) M30 - Gold Strategy");
+   IndicatorSetString(INDICATOR_SHORTNAME, "RSI(30)+RSI(14) M30");
    
    rsi30_handle = iRSI(_Symbol, PERIOD_M30, InpRSIPeriod, PRICE_CLOSE);
    rsi14_handle = iRSI(_Symbol, PERIOD_M30, InpRSI14Period, PRICE_CLOSE);
    
    if(rsi30_handle == INVALID_HANDLE || rsi14_handle == INVALID_HANDLE)
-   {
-      Print("Failed to create RSI handles");
       return(INIT_FAILED);
-   }
    
-   // Initialize prediction means
-   means_40[0].candles_in_zone = 1.61; means_40[0].rsi_vel_10 = -2.03; means_40[0].vol_ratio = 1.07;
-   means_40[1].candles_in_zone = 2.78; means_40[1].rsi_vel_10 = -3.45; means_40[1].vol_ratio = 1.02;
-   means_40[2].candles_in_zone = 1.78; means_40[2].rsi_vel_10 = -3.40; means_40[2].vol_ratio = 1.10;
-   
-   means_60[0].candles_in_zone = 1.54; means_60[0].rsi_vel_10 = 1.67; means_60[0].vol_ratio = 1.07;
-   means_60[1].candles_in_zone = 2.17; means_60[1].rsi_vel_10 = 3.05; means_60[1].vol_ratio = 1.02;
-   means_60[2].candles_in_zone = 1.83; means_60[2].rsi_vel_10 = 2.16; means_60[2].vol_ratio = 1.10;
+   means_40[0].cz=1.61; means_40[0].vel=-2.03; means_40[0].vol=1.07;
+   means_40[1].cz=2.78; means_40[1].vel=-3.45; means_40[1].vol=1.02;
+   means_40[2].cz=1.78; means_40[2].vel=-3.40; means_40[2].vol=1.10;
+   means_60[0].cz=1.54; means_60[0].vel=1.67; means_60[0].vol=1.07;
+   means_60[1].cz=2.17; means_60[1].vel=3.05; means_60[1].vol=1.02;
+   means_60[2].cz=1.83; means_60[2].vel=2.16; means_60[2].vol=1.10;
    
    EventSetTimer(30);
    ScanDojiZones();
+   ScanHistoricalSignals();
    
-   Print("Gold RSI Strategy v1.10 initialized - ", g_zone_count, " zones found");
    return(INIT_SUCCEEDED);
 }
 
-//+------------------------------------------------------------------+
-//| OnDeinit                                                          |
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
 {
    EventKillTimer();
    ObjectsDeleteAll(0, "RSI_ZONE_");
    ObjectsDeleteAll(0, "RSI_PANEL_");
-   
+   ObjectsDeleteAll(0, "RSI_SIG_");
    if(rsi30_handle != INVALID_HANDLE) IndicatorRelease(rsi30_handle);
    if(rsi14_handle != INVALID_HANDLE) IndicatorRelease(rsi14_handle);
 }
 
-//+------------------------------------------------------------------+
-//| OnTimer                                                           |
 //+------------------------------------------------------------------+
 void OnTimer()
 {
@@ -167,22 +172,15 @@ void OnTimer()
 }
 
 //+------------------------------------------------------------------+
-//| OnCalculate                                                       |
-//+------------------------------------------------------------------+
-int OnCalculate(const int rates_total,
-                const int prev_calculated,
-                const datetime &time[],
-                const double &open[],
-                const double &high[],
-                const double &low[],
-                const double &close[],
-                const long &tick_volume[],
-                const long &volume[],
-                const int &spread[])
+int OnCalculate(const int rates_total, const int prev_calculated,
+                const datetime &time[], const double &open[],
+                const double &high[], const double &low[],
+                const double &close[], const long &tick_volume[],
+                const long &volume[], const int &spread[])
 {
-   int copied30 = CopyBuffer(rsi30_handle, 0, 0, rates_total, RSI30_Buffer);
-   int copied14 = CopyBuffer(rsi14_handle, 0, 0, rates_total, RSI14_Buffer);
-   if(copied30 <= 0 || copied14 <= 0) return(0);
+   int c30 = CopyBuffer(rsi30_handle, 0, 0, rates_total, RSI30_Buffer);
+   int c14 = CopyBuffer(rsi14_handle, 0, 0, rates_total, RSI14_Buffer);
+   if(c30 <= 0 || c14 <= 0) return(0);
    
    double rsi[];
    ArraySetAsSeries(rsi, true);
@@ -190,29 +188,26 @@ int OnCalculate(const int rates_total,
    {
       g_rsi = rsi[0];
       if(ArraySize(rsi) >= 11) g_rsi_vel_10 = rsi[0] - rsi[10];
-      if(ArraySize(rsi) >= 6) g_rsi_vel_5 = rsi[0] - rsi[5];
       UpdateCandlesInZone(rsi);
    }
    
-   double rsi14_arr[];
-   ArraySetAsSeries(rsi14_arr, true);
-   if(CopyBuffer(rsi14_handle, 0, 0, 3, rsi14_arr) > 0)
-      g_rsi14 = rsi14_arr[0];
+   double r14[];
+   ArraySetAsSeries(r14, true);
+   if(CopyBuffer(rsi14_handle, 0, 0, 3, r14) > 0)
+      g_rsi14 = r14[0];
    
    if(InpShowZones) DrawZonesOnChart();
+   if(InpShowSignals) DrawSignals();
    if(InpShowPanel) DrawPanel();
    
    return(rates_total);
 }
 
 //+------------------------------------------------------------------+
-//| Update candles in zone count                                     |
-//+------------------------------------------------------------------+
 void UpdateCandlesInZone(double &rsi[])
 {
    g_candles_in_zone = 0;
    g_current_zone = 0;
-   
    double lo40 = InpLevelOversold - InpZoneTolerance;
    double hi40 = InpLevelOversold + InpZoneTolerance;
    double lo60 = InpLevelOverbought - InpZoneTolerance;
@@ -239,8 +234,6 @@ void UpdateCandlesInZone(double &rsi[])
 }
 
 //+------------------------------------------------------------------+
-//| Scan for Doji candles                                            |
-//+------------------------------------------------------------------+
 void ScanDojiZones()
 {
    g_zone_count = 0;
@@ -248,120 +241,209 @@ void ScanDojiZones()
    
    if(InpShowDailyZones)
    {
-      MqlRates daily[];
-      ArraySetAsSeries(daily, true);
-      int copied = CopyRates(_Symbol, PERIOD_D1, 0, InpLookbackDays + 1, daily);
-      if(copied > 0)
-      {
-         for(int i = 1; i < copied; i++)
+      MqlRates d[];
+      ArraySetAsSeries(d, true);
+      int c = CopyRates(_Symbol, PERIOD_D1, 0, InpLookbackDays + 1, d);
+      if(c > 0)
+         for(int i = 1; i < c; i++)
          {
-            double range = daily[i].high - daily[i].low;
-            if(range <= 0) continue;
-            double body = MathAbs(daily[i].close - daily[i].open);
-            if(body <= InpDojiThreshold * range)
-               AddZone(daily[i].time, daily[i].open, daily[i].close, daily[i].high, daily[i].low, 0);
+            double r = d[i].high - d[i].low;
+            if(r <= 0) continue;
+            if(MathAbs(d[i].close - d[i].open) <= InpDojiThreshold * r)
+               AddZone(d[i].time, d[i].open, d[i].close, 0);
          }
-      }
    }
    
    if(InpShowWeeklyZones)
    {
-      MqlRates weekly[];
-      ArraySetAsSeries(weekly, true);
-      int copied = CopyRates(_Symbol, PERIOD_W1, 0, InpLookbackWeeks + 1, weekly);
-      if(copied > 0)
-      {
-         for(int i = 1; i < copied; i++)
+      MqlRates w[];
+      ArraySetAsSeries(w, true);
+      int c = CopyRates(_Symbol, PERIOD_W1, 0, InpLookbackWeeks + 1, w);
+      if(c > 0)
+         for(int i = 1; i < c; i++)
          {
-            double range = weekly[i].high - weekly[i].low;
-            if(range <= 0) continue;
-            double body = MathAbs(weekly[i].close - weekly[i].open);
-            if(body <= InpDojiThreshold * range)
-               AddZone(weekly[i].time, weekly[i].open, weekly[i].close, weekly[i].high, weekly[i].low, 1);
+            double r = w[i].high - w[i].low;
+            if(r <= 0) continue;
+            if(MathAbs(w[i].close - w[i].open) <= InpDojiThreshold * r)
+               AddZone(w[i].time, w[i].open, w[i].close, 1);
          }
-      }
    }
 }
 
 //+------------------------------------------------------------------+
-//| Add zone to array                                                |
-//+------------------------------------------------------------------+
-void AddZone(datetime time, double op, double cl, double hi, double lo, int type)
+void AddZone(datetime t, double op, double cl, int type)
 {
    g_zone_count++;
    ArrayResize(g_zones, g_zone_count);
-   int idx = g_zone_count - 1;
-   g_zones[idx].time = time;
-   g_zones[idx].open = op;
-   g_zones[idx].close = cl;
-   g_zones[idx].high = hi;
-   g_zones[idx].low = lo;
-   g_zones[idx].midpoint = (op + cl) / 2.0;
-   g_zones[idx].range_high = MathMax(op, cl);
-   g_zones[idx].range_low = MathMin(op, cl);
-   g_zones[idx].type = type;
-   g_zones[idx].active = false;
+   int i = g_zone_count - 1;
+   g_zones[i].time = t;
+   g_zones[i].open = op;
+   g_zones[i].close = cl;
+   g_zones[i].midpoint = (op + cl) / 2.0;
+   g_zones[i].range_high = MathMax(op, cl);
+   g_zones[i].range_low = MathMin(op, cl);
+   g_zones[i].type = type;
+   g_zones[i].active = false;
 }
 
 //+------------------------------------------------------------------+
-//| Draw Doji zones on main chart (semi-transparent rectangles)     |
+//| Scan historical RSI touch events for entry signals               |
 //+------------------------------------------------------------------+
-void DrawZonesOnChart()
+void ScanHistoricalSignals()
 {
-   double current_price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-   if(current_price <= 0) return;
+   g_signal_count = 0;
+   ArrayResize(g_signals, 0);
    
-   ObjectsDeleteAll(0, "RSI_ZONE_");
+   // Get RSI(30) data for last 2000 candles (~40 days on M30)
+   double rsi[];
+   ArraySetAsSeries(rsi, true);
+   int copied = CopyBuffer(rsi30_handle, 0, 0, 2000, rsi);
+   if(copied <= 0) return;
    
-   double filter_window = current_price * 0.10;
+   // Get M30 candle times
+   datetime times[];
+   ArraySetAsSeries(times, true);
+   int tc = CopyTime(_Symbol, PERIOD_M30, 0, copied, times);
+   if(tc <= 0) return;
    
-   for(int i = 0; i < g_zone_count; i++)
+   // Get M30 close prices
+   double closes[];
+   ArraySetAsSeries(closes, true);
+   int cc = CopyClose(_Symbol, PERIOD_M30, 0, copied, closes);
+   if(cc <= 0) return;
+   
+   double lo40 = InpLevelOversold - InpZoneTolerance;
+   double hi40 = InpLevelOversold + InpZoneTolerance;
+   double lo60 = InpLevelOverbought - InpZoneTolerance;
+   double hi60 = InpLevelOverbought + InpZoneTolerance;
+   
+   // Scan from oldest to newest, find zone entries
+   for(int i = copied - 2; i >= 1; i--)
    {
-      if(g_zones[i].time >= TimeCurrent()) continue;
-      if(MathAbs(g_zones[i].midpoint - current_price) > filter_window) continue;
+      // Check for entry into zone 40 (from above)
+      if(rsi[i] >= lo40 && rsi[i] <= hi40 && (rsi[i+1] < lo40 || rsi[i+1] > hi40))
+      {
+         AddSignal(times[i], closes[i], 40, 1); // BUY
+      }
+      // Check for entry into zone 60 (from below)
+      if(rsi[i] >= lo60 && rsi[i] <= hi60 && (rsi[i+1] < lo60 || rsi[i+1] > hi60))
+      {
+         AddSignal(times[i], closes[i], 60, -1); // SELL
+      }
+   }
+   
+   Print("Found ", g_signal_count, " historical entry signals");
+}
+
+//+------------------------------------------------------------------+
+void AddSignal(datetime t, double price, int level, int dir)
+{
+   g_signal_count++;
+   ArrayResize(g_signals, g_signal_count);
+   int i = g_signal_count - 1;
+   g_signals[i].time = t;
+   g_signals[i].price = price;
+   g_signals[i].level = level;
+   g_signals[i].direction = dir;
+}
+
+//+------------------------------------------------------------------+
+//| Draw entry signal arrows on chart                                |
+//+------------------------------------------------------------------+
+void DrawSignals()
+{
+   ObjectsDeleteAll(0, "RSI_SIG_");
+   
+   if(g_signal_count == 0) return;
+   
+   // Show last N signals
+   int start = MathMax(0, g_signal_count - InpSignalCount);
+   
+   for(int i = start; i < g_signal_count; i++)
+   {
+      string name = "RSI_SIG_" + IntegerToString(i);
+      int arrow_code = g_signals[i].direction == 1 ? 233 : 234; // up arrow / down arrow
+      color clr = g_signals[i].direction == 1 ? C_BUY : C_SELL;
       
-      double tolerance = current_price * 0.0015;
-      bool is_inside = (current_price >= g_zones[i].range_low - tolerance &&
-                       current_price <= g_zones[i].range_high + tolerance);
-      g_zones[i].active = is_inside;
+      // Position: slightly above/below the candle
+      double offset = g_signals[i].price * 0.002;
+      double price_pos = g_signals[i].direction == 1 ? 
+                         g_signals[i].price - offset : 
+                         g_signals[i].price + offset;
       
-      string name = "RSI_ZONE_" + IntegerToString(i);
-      datetime time1 = g_zones[i].time;
-      datetime time2 = TimeCurrent() + PeriodSeconds(PERIOD_M30) * 100;
-      
-      //--- Create rectangle
       if(ObjectFind(0, name) < 0)
-         ObjectCreate(0, name, OBJ_RECTANGLE, 0, time1, g_zones[i].range_high, time2, g_zones[i].range_low);
+         ObjectCreate(0, name, OBJ_ARROW, 0, g_signals[i].time, price_pos);
       
-      //--- Soft pastel colors with transparency effect
-      color zoneColor = g_zones[i].type == 1 ? InpWeeklyZoneColor : InpDailyZoneColor;
-      if(is_inside) zoneColor = C'255,235,100'; // soft yellow for active
-      
-      ObjectSetInteger(0, name, OBJPROP_COLOR, zoneColor);
-      ObjectSetInteger(0, name, OBJPROP_FILL, true);    // Fill the rectangle
-      ObjectSetInteger(0, name, OBJPROP_BACK, true);     // Draw behind candles (semi-transparent effect)
-      ObjectSetInteger(0, name, OBJPROP_WIDTH, 1);
+      ObjectSetInteger(0, name, OBJPROP_ARROWCODE, arrow_code);
+      ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
+      ObjectSetInteger(0, name, OBJPROP_WIDTH, 2);
       ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
       
-      //--- Label with date and O/C prices
-      string lbl_name = "RSI_ZONE_LBL_" + IntegerToString(i);
-      string lbl_text = StringFormat("%s %s | O:%.2f C:%.2f",
-                                     g_zones[i].type == 1 ? "W" : "D",
-                                     TimeToString(g_zones[i].time, TIME_DATE),
-                                     g_zones[i].open, g_zones[i].close);
+      // Label with level
+      string lbl_name = "RSI_SIG_L_" + IntegerToString(i);
+      string lbl_text = StringFormat("%s %d", 
+                                     g_signals[i].direction == 1 ? "B" : "S",
+                                     g_signals[i].level);
       
       if(ObjectFind(0, lbl_name) < 0)
-         ObjectCreate(0, lbl_name, OBJ_TEXT, 0, time1, g_zones[i].range_high);
+         ObjectCreate(0, lbl_name, OBJ_TEXT, 0, g_signals[i].time, price_pos);
       
       ObjectSetString(0, lbl_name, OBJPROP_TEXT, lbl_text);
-      ObjectSetInteger(0, lbl_name, OBJPROP_COLOR, zoneColor);
-      ObjectSetInteger(0, lbl_name, OBJPROP_FONTSIZE, 8);
+      ObjectSetInteger(0, lbl_name, OBJPROP_COLOR, clr);
+      ObjectSetInteger(0, lbl_name, OBJPROP_FONTSIZE, 7);
       ObjectSetInteger(0, lbl_name, OBJPROP_SELECTABLE, false);
    }
 }
 
 //+------------------------------------------------------------------+
-//| Draw info panel (top-right with semi-transparent background)    |
+void DrawZonesOnChart()
+{
+   double cp = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   if(cp <= 0) return;
+   
+   ObjectsDeleteAll(0, "RSI_ZONE_");
+   double fw = cp * 0.10;
+   
+   for(int i = 0; i < g_zone_count; i++)
+   {
+      if(g_zones[i].time >= TimeCurrent()) continue;
+      if(MathAbs(g_zones[i].midpoint - cp) > fw) continue;
+      
+      double tol = cp * 0.0015;
+      bool inside = (cp >= g_zones[i].range_low - tol && cp <= g_zones[i].range_high + tol);
+      g_zones[i].active = inside;
+      
+      string name = "RSI_ZONE_" + IntegerToString(i);
+      datetime t2 = TimeCurrent() + PeriodSeconds(PERIOD_M30) * 100;
+      
+      if(ObjectFind(0, name) < 0)
+         ObjectCreate(0, name, OBJ_RECTANGLE, 0, g_zones[i].time, g_zones[i].range_high, t2, g_zones[i].range_low);
+      
+      color zc = g_zones[i].type == 1 ? InpWeeklyZoneColor : InpDailyZoneColor;
+      if(inside) zc = C'255,235,100';
+      
+      ObjectSetInteger(0, name, OBJPROP_COLOR, zc);
+      ObjectSetInteger(0, name, OBJPROP_FILL, true);
+      ObjectSetInteger(0, name, OBJPROP_BACK, true);
+      ObjectSetInteger(0, name, OBJPROP_WIDTH, 1);
+      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+      
+      string ln = "RSI_ZONE_L_" + IntegerToString(i);
+      string lt = StringFormat("%s %s | O:%.2f C:%.2f",
+                               g_zones[i].type == 1 ? "W" : "D",
+                               TimeToString(g_zones[i].time, TIME_DATE),
+                               g_zones[i].open, g_zones[i].close);
+      if(ObjectFind(0, ln) < 0)
+         ObjectCreate(0, ln, OBJ_TEXT, 0, g_zones[i].time, g_zones[i].range_high);
+      ObjectSetString(0, ln, OBJPROP_TEXT, lt);
+      ObjectSetInteger(0, ln, OBJPROP_COLOR, zc);
+      ObjectSetInteger(0, ln, OBJPROP_FONTSIZE, 8);
+      ObjectSetInteger(0, ln, OBJPROP_SELECTABLE, false);
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Draw info panel (Persian, top-right, semi-transparent bg)       |
 //+------------------------------------------------------------------+
 void DrawPanel()
 {
@@ -370,226 +452,189 @@ void DrawPanel()
    double price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    if(price <= 0) return;
    
-   //--- Draw panel background (semi-transparent rectangle label)
-   string bg_name = "RSI_PANEL_BG";
-   if(ObjectFind(0, bg_name) < 0)
-      ObjectCreate(0, bg_name, OBJ_RECTANGLE_LABEL, 0, 0, 0);
+   // Background
+   string bg = "RSI_PANEL_BG";
+   if(ObjectFind(0, bg) < 0)
+      ObjectCreate(0, bg, OBJ_RECTANGLE_LABEL, 0, 0, 0);
+   ObjectSetInteger(0, bg, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
+   ObjectSetInteger(0, bg, OBJPROP_XDISTANCE, 5);
+   ObjectSetInteger(0, bg, OBJPROP_YDISTANCE, 20);
+   ObjectSetInteger(0, bg, OBJPROP_XSIZE, PANEL_W);
+   ObjectSetInteger(0, bg, OBJPROP_YSIZE, PANEL_H);
+   ObjectSetInteger(0, bg, OBJPROP_BGCOLOR, C'250,250,248');
+   ObjectSetInteger(0, bg, OBJPROP_BORDER_TYPE, BORDER_FLAT);
+   ObjectSetInteger(0, bg, OBJPROP_COLOR, C'180,175,170');
+   ObjectSetInteger(0, bg, OBJPROP_WIDTH, 1);
+   ObjectSetInteger(0, bg, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, bg, OBJPROP_BACK, false);
    
-   ObjectSetInteger(0, bg_name, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
-   ObjectSetInteger(0, bg_name, OBJPROP_XDISTANCE, PANEL_X);
-   ObjectSetInteger(0, bg_name, OBJPROP_YDISTANCE, PANEL_Y);
-   ObjectSetInteger(0, bg_name, OBJPROP_XSIZE, PANEL_WIDTH);
-   ObjectSetInteger(0, bg_name, OBJPROP_YSIZE, PANEL_HEIGHT);
-   ObjectSetInteger(0, bg_name, OBJPROP_BGCOLOR, C'250,250,248');    // very light gray
-   ObjectSetInteger(0, bg_name, OBJPROP_BORDER_TYPE, BORDER_FLAT);
-   ObjectSetInteger(0, bg_name, OBJPROP_COLOR, C'180,175,170');       // soft border
-   ObjectSetInteger(0, bg_name, OBJPROP_WIDTH, 1);
-   ObjectSetInteger(0, bg_name, OBJPROP_SELECTABLE, false);
-   ObjectSetInteger(0, bg_name, OBJPROP_BACK, false);
+   int x = 13;
+   int y = 26;
    
-   //--- Panel text (right-aligned from right edge)
-   int x = PANEL_X + 8;
-   int y = PANEL_Y + 6;
-   int line_h = LINE_H;
+   // Use Tahoma for Persian support
+   string font = "Tahoma";
+   string font_b = "Tahoma";
    
-   // Soft pastel text colors
-   color c_title   = C'80,75,70';     // dark warm gray
-   color c_label   = C'120,115,110';   // medium warm gray
-   color c_value   = C'50,45,40';      // dark
-   color c_rev     = C'91,140,90';     // soft sage green
-   color c_div     = C'192,138,90';    // soft peach
-   color c_pass    = C'181,107,107';   // soft coral
-   color c_alert   = C'200,100,100';   // soft red
-   color c_buy     = C'91,140,90';     // soft green
-   color c_sell    = C'181,107,107';   // soft red
-   color c_muted   = C'160,155,150';   // light gray
+   DrawText("p0", x, y, "استراتژی RSI طلا - M30", C_TITLE, 11, font_b);
+   y += LH + 4;
    
-   //--- Title
-   DrawText("RSI_PANEL_0", x, y, "Gold RSI Strategy - M30", c_title, 11, "Arial Bold");
-   y += line_h + 4;
+   DrawText("p1", x, y, StringFormat("قیمت: %.2f", price), C_VALUE, 10, font);
+   y += LH;
    
-   //--- Price
-   DrawText("RSI_PANEL_1", x, y, StringFormat("Price: %.2f", price), c_value, 10, "Arial");
-   y += line_h;
+   color rsi30_c = C_VALUE;
+   if(g_rsi > 60) rsi30_c = C_PASS;
+   else if(g_rsi < 40) rsi30_c = C_REV;
+   DrawText("p2", x, y, StringFormat("RSI(30): %.2f", g_rsi), rsi30_c, 10, font_b);
+   y += LH;
    
-   //--- RSI(30) — primary
-   color rsi30_clr = c_value;
-   if(g_rsi > 60) rsi30_clr = c_pass;
-   else if(g_rsi < 40) rsi30_clr = c_rev;
-   DrawText("RSI_PANEL_2", x, y, StringFormat("RSI(30): %.2f", g_rsi), rsi30_clr, 10, "Arial Bold");
-   y += line_h;
+   color rsi14_c = C_MUTED;
+   DrawText("p3", x, y, StringFormat("RSI(14): %.2f", g_rsi14), rsi14_c, 9, font);
+   y += LH + 4;
    
-   //--- RSI(14) — reference
-   color rsi14_clr = c_muted;
-   if(g_rsi14 > 60) rsi14_clr = C'200,150,150';
-   else if(g_rsi14 < 40) rsi14_clr = C'150,180,150';
-   DrawText("RSI_PANEL_3", x, y, StringFormat("RSI(14): %.2f", g_rsi14), rsi14_clr, 9, "Arial");
-   y += line_h + 4;
-   
-   //--- Zone status
+   // Zone status
    if(g_current_zone > 0)
    {
-      DrawText("RSI_PANEL_4", x, y, 
-         StringFormat("IN ZONE %d (%d candles)", g_current_zone, g_candles_in_zone),
-         c_div, 10, "Arial Bold");
+      DrawText("p4", x, y, StringFormat("در زون %d (%d کندل)", g_current_zone, g_candles_in_zone), C_DIV, 10, font_b);
    }
    else
    {
       double d40 = MathAbs(g_rsi - 40);
       double d60 = MathAbs(g_rsi - 60);
-      int nearest = d40 < d60 ? 40 : 60;
-      double dist = MathMin(d40, d60);
-      DrawText("RSI_PANEL_4", x, y, 
-         StringFormat("Nearest: level %d (%.1f units)", nearest, dist),
-         c_muted, 10, "Arial");
+      int near = d40 < d60 ? 40 : 60;
+      DrawText("p4", x, y, StringFormat("نزدیک‌تر: سطح %d (%.1f واحد)", near, MathMin(d40, d60)), C_MUTED, 10, font);
    }
-   y += line_h + 4;
+   y += LH + 4;
    
-   //--- Prediction header
-   DrawText("RSI_PANEL_5", x, y, "--- Prediction ---", c_title, 9, "Arial Bold");
-   y += line_h - 2;
+   // Prediction
+   DrawText("p5", x, y, "--- پیش‌بینی ---", C_TITLE, 9, font_b);
+   y += LH - 2;
    
-   double rev40, div40, pass40;
-   double rev60, div60, pass60;
-   PredictForLevel(40, rev40, div40, pass40);
-   PredictForLevel(60, rev60, div60, pass60);
+   double r40, d40_2, p40;
+   double r60, d60_2, p60;
+   PredictForLevel(40, r40, d40_2, p40);
+   PredictForLevel(60, r60, d60_2, p60);
    
-   double d40 = MathAbs(g_rsi - 40);
-   double d60 = MathAbs(g_rsi - 60);
-   int likely = d40 < d60 ? 40 : 60;
+   double dd40 = MathAbs(g_rsi - 40);
+   double dd60 = MathAbs(g_rsi - 60);
+   int likely = dd40 < dd60 ? 40 : 60;
    
-   DrawText("RSI_PANEL_6", x, y, StringFormat("Likely touch: level %d", likely), C'90,90,120, 10, "Arial Bold");
-   y += line_h - 2;
+   DrawText("p6", x, y, StringFormat("محتمل‌تر: سطح %d", likely), C_BLUE, 10, font_b);
+   y += LH - 2;
    
-   double rev = likely == 40 ? rev40 : rev60;
-   double div = likely == 40 ? div40 : div60;
-   double pas = likely == 40 ? pass40 : pass60;
+   double rev = likely == 40 ? r40 : r60;
+   double div = likely == 40 ? d40_2 : d60_2;
+   double pas = likely == 40 ? p40 : p60;
    
-   DrawText("RSI_PANEL_7", x, y, StringFormat("  Reversal:     %.0f%%", rev * 100), c_rev, 9, "Arial");
-   y += line_h - 4;
-   DrawText("RSI_PANEL_8", x, y, StringFormat("  Divergence:   %.0f%%", div * 100), c_div, 9, "Arial");
-   y += line_h - 4;
-   DrawText("RSI_PANEL_9", x, y, StringFormat("  Pass-through: %.0f%%", pas * 100), c_pass, 9, "Arial");
-   y += line_h;
+   DrawText("p7", x, y, StringFormat("  برگشت:     %.0f%%", rev * 100), C_REV, 9, font);
+   y += LH - 4;
+   DrawText("p8", x, y, StringFormat("  واگرایی:   %.0f%%", div * 100), C_DIV, 9, font);
+   y += LH - 4;
+   DrawText("p9", x, y, StringFormat("  گذشتن:     %.0f%%", pas * 100), C_PASS, 9, font);
+   y += LH;
    
-   //--- Zones section
-   DrawText("RSI_PANEL_10", x, y, "--- Doji Zones ---", c_title, 9, "Arial Bold");
-   y += line_h - 2;
+   // Zones
+   DrawText("p10", x, y, "--- زون‌های دوجی ---", C_TITLE, 9, font_b);
+   y += LH - 2;
    
-   int nearest_idx = -1;
-   double nearest_dist = 999999;
-   bool any_inside = false;
+   int nidx = -1;
+   double ndist = 999999;
+   bool inside = false;
    
    for(int i = 0; i < g_zone_count; i++)
    {
       if(g_zones[i].active)
       {
-         DrawText("RSI_PANEL_11", x, y, 
-            StringFormat("INSIDE %s zone!", g_zones[i].type == 1 ? "Weekly" : "Daily"),
-            c_alert, 10, "Arial Bold");
-         y += line_h - 2;
-         any_inside = true;
+         DrawText("p11", x, y, StringFormat("داخل زون %s!", g_zones[i].type == 1 ? "هفتگی" : "روزانه"), C_ALERT, 10, font_b);
+         y += LH - 2;
+         inside = true;
       }
-      
       double dist = MathAbs(g_zones[i].midpoint - price);
-      if(dist < nearest_dist && !g_zones[i].active)
+      if(dist < ndist && !g_zones[i].active)
       {
-         nearest_dist = dist;
-         nearest_idx = i;
+         ndist = dist;
+         nidx = i;
       }
    }
    
-   if(!any_inside && nearest_idx >= 0)
+   if(!inside && nidx >= 0)
    {
-      DrawText("RSI_PANEL_12", x, y, 
-         StringFormat("Nearest: %s @ %.2f", 
-            g_zones[nearest_idx].type == 1 ? "Weekly" : "Daily", 
-            g_zones[nearest_idx].midpoint),
-         c_label, 9, "Arial");
-      y += line_h - 4;
-      
-      double dist_pips = nearest_dist * 10;
-      double dist_pct = nearest_dist / price * 100;
-      DrawText("RSI_PANEL_13", x, y, 
-         StringFormat("  Dist: %.0f pips (%.2f%%)", dist_pips, dist_pct),
-         c_muted, 9, "Arial");
-      y += line_h - 4;
-      
-      DrawText("RSI_PANEL_14", x, y, 
-         StringFormat("  O:%.2f  C:%.2f", g_zones[nearest_idx].open, g_zones[nearest_idx].close),
-         c_muted, 9, "Arial");
-      y += line_h;
+      DrawText("p12", x, y, StringFormat("نزدیک‌ترین: %s @ %.2f", g_zones[nidx].type == 1 ? "هفتگی" : "روزانه", g_zones[nidx].midpoint), C_LABEL, 9, font);
+      y += LH - 4;
+      DrawText("p13", x, y, StringFormat("  فاصله: %.0f pip (%.2f%%)", ndist * 10, ndist / price * 100), C_MUTED, 9, font);
+      y += LH - 4;
+      DrawText("p14", x, y, StringFormat("  O:%.2f  C:%.2f", g_zones[nidx].open, g_zones[nidx].close), C_MUTED, 9, font);
+      y += LH;
    }
-   else if(!any_inside)
+   else if(!inside)
    {
-      DrawText("RSI_PANEL_12", x, y, "No zones nearby", c_muted, 9, "Arial");
-      y += line_h;
+      DrawText("p12", x, y, "زونی نزدیک نیست", C_MUTED, 9, font);
+      y += LH;
    }
    
-   //--- Entry ticket
+   // Entry ticket
    if(g_current_zone > 0)
    {
       y += 4;
-      DrawText("RSI_PANEL_15", x, y, "--- Entry Ticket ---", c_title, 9, "Arial Bold");
-      y += line_h - 2;
+      DrawText("p15", x, y, "--- تیکت ورود ---", C_TITLE, 9, font_b);
+      y += LH - 2;
       
       string dir = "";
-      color dir_clr = c_muted;
+      color dc = C_MUTED;
       double sl = 0, tp = 0;
       
       if(g_current_zone == 60)
       {
-         dir = "SELL"; dir_clr = c_sell;
+         dir = "فروش (SELL)"; dc = C_SELL;
          sl = price + price * 0.004;
          tp = price - price * 0.008;
       }
       else if(g_current_zone == 40)
       {
-         dir = "BUY"; dir_clr = c_buy;
+         dir = "خرید (BUY)"; dc = C_BUY;
          sl = price - price * 0.004;
          tp = price + price * 0.008;
       }
       
       if(dir != "")
       {
-         DrawText("RSI_PANEL_16", x, y, StringFormat("Direction: %s", dir), dir_clr, 10, "Arial Bold");
-         y += line_h - 2;
-         DrawText("RSI_PANEL_17", x, y, StringFormat("Entry: %.2f", price), c_value, 9, "Arial");
-         y += line_h - 4;
-         DrawText("RSI_PANEL_18", x, y, StringFormat("SL: %.2f", sl), c_sell, 9, "Arial");
-         y += line_h - 4;
-         DrawText("RSI_PANEL_19", x, y, StringFormat("TP: %.2f", tp), c_buy, 9, "Arial");
-         y += line_h - 4;
+         DrawText("p16", x, y, StringFormat("جهت: %s", dir), dc, 10, font_b);
+         y += LH - 2;
+         DrawText("p17", x, y, StringFormat("ورود: %.2f", price), C_VALUE, 9, font);
+         y += LH - 4;
+         DrawText("p18", x, y, StringFormat("ضرر: %.2f", sl), C_SELL, 9, font);
+         y += LH - 4;
+         DrawText("p19", x, y, StringFormat("سود: %.2f", tp), C_BUY, 9, font);
+         y += LH - 4;
          double rr = MathAbs(tp - price) / MathAbs(price - sl);
-         DrawText("RSI_PANEL_20", x, y, StringFormat("R:R = 1:%.2f", rr), c_div, 9, "Arial");
-         y += line_h;
+         DrawText("p20", x, y, StringFormat("R:R = 1:%.2f", rr), C_DIV, 9, font);
+         y += LH;
       }
    }
    
-   //--- Session
+   // Signal count
    y += 4;
+   DrawText("p21", x, y, StringFormat("سیگنال‌ها: %d مورد", g_signal_count), C_MUTED, 8, font);
+   y += LH - 4;
+   
+   // Session
    MqlDateTime dt;
    TimeToStruct(TimeCurrent(), dt);
-   int hour = dt.hour;
-   int tehran_hour = (hour + 3) % 24;
-   string sess = "Night";
-   if(tehran_hour >= 6 && tehran_hour < 12) sess = "Morning (Asia)";
-   else if(tehran_hour >= 12 && tehran_hour < 17) sess = "Noon (Europe)";
-   else if(tehran_hour >= 17 && tehran_hour < 22) sess = "Evening (US)";
+   int th = (dt.hour + 3) % 24;
+   string sess = "شب";
+   if(th >= 6 && th < 12) sess = "صبح (آسیا)";
+   else if(th >= 12 && th < 17) sess = "ظهر (اروپا)";
+   else if(th >= 17 && th < 22) sess = "عصر (آمریکا)";
    
-   DrawText("RSI_PANEL_21", x, y, StringFormat("Session: %s", sess), c_muted, 8, "Arial");
-   y += line_h - 4;
-   DrawText("RSI_PANEL_22", x, y, StringFormat("Updated: %s", TimeToString(TimeCurrent(), TIME_MINUTES)), c_muted, 8, "Arial");
+   DrawText("p22", x, y, StringFormat("سشن: %s", sess), C_MUTED, 8, font);
+   y += LH - 4;
+   DrawText("p23", x, y, StringFormat("بروزرسانی: %s", TimeToString(TimeCurrent(), TIME_MINUTES)), C_MUTED, 8, font);
 }
 
-//+------------------------------------------------------------------+
-//| Draw text label on chart (right-corner aligned)                  |
 //+------------------------------------------------------------------+
 void DrawText(string name, int x, int y, string text, color clr, int size, string font)
 {
    if(ObjectFind(0, name) < 0)
       ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
-   
    ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
    ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
    ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
@@ -602,66 +647,43 @@ void DrawText(string name, int x, int y, string text, color clr, int size, strin
 }
 
 //+------------------------------------------------------------------+
-//| Predict for a level                                              |
-//+------------------------------------------------------------------+
-void PredictForLevel(int level, double &reversal, double &divergence, double &pass_through)
+void PredictForLevel(int level, double &rev, double &div, double &pas)
 {
-   CategoryMeans m[3];
-   if(level == 40)
-   {
-      m[0] = means_40[0]; m[1] = means_40[1]; m[2] = means_40[2];
-   }
-   else
-   {
-      m[0] = means_60[0]; m[1] = means_60[1]; m[2] = means_60[2];
-   }
+   CatMeans m[3];
+   if(level == 40) { m[0]=means_40[0]; m[1]=means_40[1]; m[2]=means_40[2]; }
+   else { m[0]=means_60[0]; m[1]=means_60[1]; m[2]=means_60[2]; }
    
-   double distances[3];
+   double dist[3];
    for(int i = 0; i < 3; i++)
    {
-      double dCandles = MathPow((g_candles_in_zone - m[i].candles_in_zone) / 3.0, 2);
-      double dVel = MathPow((g_rsi_vel_10 - m[i].rsi_vel_10) / 4.0, 2);
-      distances[i] = MathSqrt(dCandles * 3.0 + dVel);
+      double dc = MathPow((g_candles_in_zone - m[i].cz) / 3.0, 2);
+      double dv = MathPow((g_rsi_vel_10 - m[i].vel) / 4.0, 2);
+      dist[i] = MathSqrt(dc * 3.0 + dv);
    }
    
-   double invD[3];
-   double sumInv = 0;
-   for(int i = 0; i < 3; i++)
-   {
-      invD[i] = 1.0 / (distances[i] + 0.3);
-      sumInv += invD[i];
-   }
+   double inv[3], sum = 0;
+   for(int i = 0; i < 3; i++) { inv[i] = 1.0 / (dist[i] + 0.3); sum += inv[i]; }
    
-   double probs[3];
-   double sumP = 0;
-   for(int i = 0; i < 3; i++)
-   {
-      probs[i] = base_rates[i] * (invD[i] / (sumInv / 3.0));
-      sumP += probs[i];
-   }
+   double p[3], sp = 0;
+   for(int i = 0; i < 3; i++) { p[i] = base_rates[i] * (inv[i] / (sum / 3.0)); sp += p[i]; }
    
-   reversal = probs[0] / sumP;
-   divergence = probs[1] / sumP;
-   pass_through = probs[2] / sumP;
+   rev = p[0] / sp;
+   div = p[1] / sp;
+   pas = p[2] / sp;
 }
 
-//+------------------------------------------------------------------+
-//| Check alerts                                                     |
 //+------------------------------------------------------------------+
 void CheckAlerts()
 {
    if(!InpEnableAlerts) return;
-   
    datetime now = TimeCurrent();
    
    if(InpAlertOnRSI && g_current_zone > 0 && now - g_last_alert_rsi > 300)
    {
-      double rev, div, pas;
-      PredictForLevel(g_current_zone, rev, div, pas);
-      
-      string msg = StringFormat("RSI entered ZONE %d! (RSI=%.2f, %d candles)\nReversal: %.0f%% | Divergence: %.0f%% | Pass: %.0f%%",
-                                g_current_zone, g_rsi, g_candles_in_zone, rev*100, div*100, pas*100);
-      Alert(msg);
+      double r, d, p;
+      PredictForLevel(g_current_zone, r, d, p);
+      Alert(StringFormat("RSI وارد زون %d شد! (RSI=%.2f, %d کندل)\nبرگشت: %.0f%% | واگرایی: %.0f%% | گذشتن: %.0f%%",
+                         g_current_zone, g_rsi, g_candles_in_zone, r*100, d*100, p*100));
       g_last_alert_rsi = now;
    }
    
@@ -671,11 +693,10 @@ void CheckAlerts()
       {
          if(g_zones[i].active && now - g_last_alert_zone > 300)
          {
-            string msg = StringFormat("Price entered %s Doji zone!\nZone: %.2f - %.2f\nDate: %s",
-                                      g_zones[i].type == 1 ? "WEEKLY" : "DAILY",
-                                      g_zones[i].range_low, g_zones[i].range_high,
-                                      TimeToString(g_zones[i].time, TIME_DATE));
-            Alert(msg);
+            Alert(StringFormat("قیمت وارد زون دوجی %s شد!\nزون: %.2f - %.2f\nتاریخ: %s",
+                               g_zones[i].type == 1 ? "هفتگی" : "روزانه",
+                               g_zones[i].range_low, g_zones[i].range_high,
+                               TimeToString(g_zones[i].time, TIME_DATE)));
             g_last_alert_zone = now;
             break;
          }
@@ -684,47 +705,41 @@ void CheckAlerts()
    
    if(InpAlertOnPattern && g_current_zone > 0 && now - g_last_alert_rsi > 180)
    {
-      string pattern = DetectM5Pattern();
-      if(pattern != "")
+      string pat = DetectM5Pattern();
+      if(pat != "")
       {
-         string msg = StringFormat("M5 Pattern: %s\nRSI in zone %d - Direction: %s",
-                                   pattern, g_current_zone, g_current_zone == 40 ? "BUY" : "SELL");
-         Alert(msg);
+         Alert(StringFormat("الگوی M5: %s\nRSI در زون %d - جهت: %s",
+                            pat, g_current_zone, g_current_zone == 40 ? "خرید" : "فروش"));
          g_last_alert_rsi = now;
       }
    }
 }
 
 //+------------------------------------------------------------------+
-//| Detect M5 pattern                                                |
-//+------------------------------------------------------------------+
 string DetectM5Pattern()
 {
-   MqlRates rates[];
-   ArraySetAsSeries(rates, true);
-   if(CopyRates(_Symbol, PERIOD_M5, 0, 3, rates) < 3) return "";
+   MqlRates r[];
+   ArraySetAsSeries(r, true);
+   if(CopyRates(_Symbol, PERIOD_M5, 0, 3, r) < 3) return "";
    
-   double body = MathAbs(rates[0].close - rates[0].open);
-   double range = rates[0].high - rates[0].low;
+   double body = MathAbs(r[0].close - r[0].open);
+   double range = r[0].high - r[0].low;
    if(range <= 0) return "";
    
-   double upper_wick = rates[0].high - MathMax(rates[0].open, rates[0].close);
-   double lower_wick = MathMin(rates[0].open, rates[0].close) - rates[0].low;
+   double uw = r[0].high - MathMax(r[0].open, r[0].close);
+   double lw = MathMin(r[0].open, r[0].close) - r[0].low;
    
    if(body <= range * 0.10) return "Doji";
-   if(lower_wick >= range * 0.6 && body <= range * 0.35) return "Bullish Pin Bar";
-   if(upper_wick >= range * 0.6 && body <= range * 0.35) return "Bearish Pin Bar";
-   
-   if(rates[1].close < rates[1].open && rates[0].close > rates[0].open &&
-      MathMax(rates[0].open, rates[0].close) >= MathMax(rates[1].open, rates[1].close) &&
-      MathMin(rates[0].open, rates[0].close) <= MathMin(rates[1].open, rates[1].close))
+   if(lw >= range * 0.6 && body <= range * 0.35) return "Bullish Pin Bar";
+   if(uw >= range * 0.6 && body <= range * 0.35) return "Bearish Pin Bar";
+   if(r[1].close < r[1].open && r[0].close > r[0].open &&
+      MathMax(r[0].open, r[0].close) >= MathMax(r[1].open, r[1].close) &&
+      MathMin(r[0].open, r[0].close) <= MathMin(r[1].open, r[1].close))
       return "Bullish Engulfing";
-   
-   if(rates[1].close > rates[1].open && rates[0].close < rates[0].open &&
-      MathMax(rates[0].open, rates[0].close) >= MathMax(rates[1].open, rates[1].close) &&
-      MathMin(rates[0].open, rates[0].close) <= MathMin(rates[1].open, rates[1].close))
+   if(r[1].close > r[1].open && r[0].close < r[0].open &&
+      MathMax(r[0].open, r[0].close) >= MathMax(r[1].open, r[1].close) &&
+      MathMin(r[0].open, r[0].close) <= MathMin(r[1].open, r[1].close))
       return "Bearish Engulfing";
-   
    return "";
 }
 //+------------------------------------------------------------------+
