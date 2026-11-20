@@ -1,11 +1,11 @@
 //+------------------------------------------------------------------+
 //|                                         Gold_RSI_Strategy.mq5    |
-//|        RSI(30)+RSI(14) | Movable Panel | Doji Zones | Signals    |
+//|     RSI(30)+RSI(14) | Movable Panel | H4+Daily+Weekly Doji Zones |
 //+------------------------------------------------------------------+
-#property copyright "Z.ai - Gold RSI Widget"
+#property copyright "Z.ai"
 #property link      "https://github.com/arasht1q/gold-rsi-widget"
-#property version   "1.40"
-#property description "RSI(30)+RSI(14) M30 - Movable Persian Panel - Doji Zones - Entry Signals"
+#property version   "1.50"
+#property description "RSI(30)+RSI(14) M30 - Movable Panel - H4/Daily/Weekly Doji Zones - Entry Signals"
 #property indicator_separate_window
 #property indicator_buffers 2
 #property indicator_plots   2
@@ -28,25 +28,29 @@
 #property indicator_levelstyle STYLE_DASH
 #property indicator_levelwidth 1
 
-//--- Input Parameters
+//--- Inputs
 input int      InpRSIPeriod        = 30;
 input int      InpRSI14Period      = 14;
 input double   InpLevelOversold    = 40.0;
 input double   InpLevelOverbought  = 60.0;
 input double   InpZoneTolerance    = 1.0;
 input double   InpDojiThreshold    = 0.10;
+input int      InpLookbackH4       = 200;      // H4 candles to scan
 input int      InpLookbackDays     = 180;
 input int      InpLookbackWeeks    = 52;
-input double   InpZoneFilter       = 25.0;     // Zone filter % (show zones within this % of price)
-input int      InpMaxZonesToShow   = 12;        // Max zones to draw on chart
+input double   InpZoneFilter       = 25.0;
+input int      InpMaxZonesToShow   = 15;
+input double   InpOverlapThreshold = 0.3;      // Zones within this % are "overlapping" — show only newest
 input int      InpSignalCount      = 50;
 input bool     InpShowZones        = true;
+input bool     InpShowH4Zones      = true;     // Show H4 Doji zones
 input bool     InpShowDailyZones   = true;
 input bool     InpShowWeeklyZones  = true;
-input color    InpWeeklyZoneColor  = C'230,160,80';
-input color    InpDailyZoneColor   = C'170,170,175';
-input color    InpPanelBgColor     = C'245,243,238';  // Panel background (works on any theme)
-input color    InpPanelTextColor   = C'40,38,35';      // Panel text color
+input color    InpH4ZoneColor      = C'160,180,200';     // H4 zone (soft blue-gray)
+input color    InpWeeklyZoneColor  = C'230,160,80';      // Weekly (soft orange)
+input color    InpDailyZoneColor   = C'170,170,175';     // Daily (soft gray)
+input color    InpPanelBgColor     = C'245,243,238';
+input color    InpPanelTextColor   = C'40,38,35';
 input bool     InpShowPanel        = true;
 input bool     InpShowSignals      = true;
 input bool     InpEnableAlerts     = true;
@@ -69,19 +73,30 @@ int g_current_zone = 0;
 datetime g_last_alert_rsi = 0;
 datetime g_last_alert_zone = 0;
 
-//--- Panel position (user can drag to change)
+//--- Panel position
 int g_panel_x = 10;
 int g_panel_y = 25;
-ENUM_BASE_CORNER g_panel_corner = CORNER_LEFT_UPPER;
-bool g_panel_exists = false;
 
-//--- Zones
-struct DojiZone {
-   datetime time; double open; double close; double midpoint;
-   double range_high; double range_low; int type; bool active;
+//--- Zone structure
+struct DojiZone
+{
+   datetime time;
+   double   open;
+   double   close;
+   double   midpoint;
+   double   range_high;
+   double   range_low;
+   int      type;  // 0=daily, 1=weekly, 2=H4
+   bool     active;
+   double   distance; // distance from current price
 };
+
 DojiZone g_zones[];
 int g_zone_count = 0;
+
+//--- Deduplicated zones (after removing overlaps)
+DojiZone g_final_zones[];
+int g_final_count = 0;
 
 //--- Signals
 struct EntrySignal { datetime time; double price; int level; int direction; };
@@ -93,8 +108,8 @@ struct CatMeans { double cz; double vel; double vol; };
 CatMeans means_40[3]; CatMeans means_60[3];
 double base_rates[3] = {0.329, 0.210, 0.461};
 
-#define PANEL_W 255
-#define PANEL_H 420
+#define PW 255
+#define PH 430
 #define LH 16
 
 //+------------------------------------------------------------------+
@@ -110,8 +125,19 @@ int OnInit()
    
    rsi30_handle = iRSI(_Symbol, PERIOD_M30, InpRSIPeriod, PRICE_CLOSE);
    rsi14_handle = iRSI(_Symbol, PERIOD_M30, InpRSI14Period, PRICE_CLOSE);
-   if(rsi30_handle == INVALID_HANDLE || rsi14_handle == INVALID_HANDLE)
+   
+   if(rsi30_handle == INVALID_HANDLE)
+   {
+      Print("ERROR: Failed to create RSI(30) handle");
       return(INIT_FAILED);
+   }
+   if(rsi14_handle == INVALID_HANDLE)
+   {
+      Print("ERROR: Failed to create RSI(14) handle");
+      return(INIT_FAILED);
+   }
+   
+   Print("RSI handles created: RSI(30)=", rsi30_handle, " RSI(14)=", rsi14_handle);
    
    means_40[0].cz=1.61; means_40[0].vel=-2.03; means_40[0].vol=1.07;
    means_40[1].cz=2.78; means_40[1].vel=-3.45; means_40[1].vol=1.02;
@@ -124,10 +150,11 @@ int OnInit()
    ScanDojiZones();
    ScanHistoricalSignals();
    
-   // Make sure objects show on chart
+   // Enable object events
    ChartSetInteger(0, CHART_EVENT_OBJECT_CREATE, true);
    ChartSetInteger(0, CHART_EVENT_OBJECT_DELETE, true);
    
+   Print("Gold RSI Strategy v1.50 initialized");
    return(INIT_SUCCEEDED);
 }
 
@@ -135,9 +162,7 @@ int OnInit()
 void OnDeinit(const int reason)
 {
    EventKillTimer();
-   ObjectsDeleteAll(0, "RSI_ZONE_");
-   ObjectsDeleteAll(0, "RSI_PNL_");
-   ObjectsDeleteAll(0, "RSI_SIG_");
+   ObjectsDeleteAll(0, "GZ_");
    Comment("");
    if(rsi30_handle != INVALID_HANDLE) IndicatorRelease(rsi30_handle);
    if(rsi14_handle != INVALID_HANDLE) IndicatorRelease(rsi14_handle);
@@ -146,16 +171,12 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam)
 {
-   // Handle panel drag
    if(id == CHARTEVENT_OBJECT_DRAG)
    {
-      if(sparam == "RSI_PNL_BG")
+      if(sparam == "GZ_PNL_BG")
       {
-         // Read new position from dragged background
-         g_panel_x = (int)ObjectGetInteger(0, "RSI_PNL_BG", OBJPROP_XDISTANCE);
-         g_panel_y = (int)ObjectGetInteger(0, "RSI_PNL_BG", OBJPROP_YDISTANCE);
-         g_panel_corner = (ENUM_BASE_CORNER)ObjectGetInteger(0, "RSI_PNL_BG", OBJPROP_CORNER);
-         // Redraw panel text at new position
+         g_panel_x = (int)ObjectGetInteger(0, "GZ_PNL_BG", OBJPROP_XDISTANCE);
+         g_panel_y = (int)ObjectGetInteger(0, "GZ_PNL_BG", OBJPROP_YDISTANCE);
          DrawPanel();
          ChartRedraw(0);
       }
@@ -179,7 +200,12 @@ int OnCalculate(const int rates_total, const int prev_calculated,
 {
    int c30 = CopyBuffer(rsi30_handle, 0, 0, rates_total, RSI30_Buffer);
    int c14 = CopyBuffer(rsi14_handle, 0, 0, rates_total, RSI14_Buffer);
-   if(c30 <= 0 || c14 <= 0) return(0);
+   
+   if(c30 <= 0 || c14 <= 0)
+   {
+      // Try again on next tick
+      return(prev_calculated);
+   }
    
    double rsi[];
    ArraySetAsSeries(rsi, true);
@@ -199,10 +225,9 @@ int OnCalculate(const int rates_total, const int prev_calculated,
    if(InpShowSignals) DrawSignals();
    if(InpShowPanel) DrawPanel();
    
-   // Debug info on chart
    double cp = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-   Comment(StringFormat("RSI(30)=%.2f | RSI(14)=%.2f | Zones: %d found, %d shown | Signals: %d | Price: %.2f",
-                        g_rsi, g_rsi14, g_zone_count, MathMin(g_zone_count, InpMaxZonesToShow), g_signal_count, cp));
+   Comment(StringFormat("RSI(30)=%.2f | RSI(14)=%.2f | Zones: %d found → %d shown | Signals: %d | Price: %.2f",
+                        g_rsi, g_rsi14, g_zone_count, g_final_count, g_signal_count, cp));
    
    return(rates_total);
 }
@@ -238,17 +263,39 @@ void UpdateCandlesInZone(double &rsi[])
 }
 
 //+------------------------------------------------------------------+
+//| Scan Doji zones from H4, Daily, Weekly                           |
+//+------------------------------------------------------------------+
 void ScanDojiZones()
 {
    g_zone_count = 0;
    ArrayResize(g_zones, 0);
    
+   //--- H4 Dojis
+   if(InpShowH4Zones)
+   {
+      MqlRates h4[];
+      ArraySetAsSeries(h4, true);
+      int c = CopyRates(_Symbol, PERIOD_H4, 0, InpLookbackH4 + 1, h4);
+      if(c > 0)
+      {
+         for(int i = 1; i < c; i++)
+         {
+            double r = h4[i].high - h4[i].low;
+            if(r <= 0) continue;
+            if(MathAbs(h4[i].close - h4[i].open) <= InpDojiThreshold * r)
+               AddZone(h4[i].time, h4[i].open, h4[i].close, 2); // type 2 = H4
+         }
+      }
+   }
+   
+   //--- Daily Dojis
    if(InpShowDailyZones)
    {
       MqlRates d[];
       ArraySetAsSeries(d, true);
       int c = CopyRates(_Symbol, PERIOD_D1, 0, InpLookbackDays + 1, d);
       if(c > 0)
+      {
          for(int i = 1; i < c; i++)
          {
             double r = d[i].high - d[i].low;
@@ -256,14 +303,17 @@ void ScanDojiZones()
             if(MathAbs(d[i].close - d[i].open) <= InpDojiThreshold * r)
                AddZone(d[i].time, d[i].open, d[i].close, 0);
          }
+      }
    }
    
+   //--- Weekly Dojis
    if(InpShowWeeklyZones)
    {
       MqlRates w[];
       ArraySetAsSeries(w, true);
       int c = CopyRates(_Symbol, PERIOD_W1, 0, InpLookbackWeeks + 1, w);
       if(c > 0)
+      {
          for(int i = 1; i < c; i++)
          {
             double r = w[i].high - w[i].low;
@@ -271,17 +321,21 @@ void ScanDojiZones()
             if(MathAbs(w[i].close - w[i].open) <= InpDojiThreshold * r)
                AddZone(w[i].time, w[i].open, w[i].close, 1);
          }
+      }
    }
    
-   Print("[Gold RSI] Doji zones found: ", g_zone_count, 
-         " (Daily: ", CountType(0), ", Weekly: ", CountType(1), ")");
-}
-
-int CountType(int t)
-{
-   int n = 0;
-   for(int i = 0; i < g_zone_count; i++) if(g_zones[i].type == t) n++;
-   return n;
+   //--- Deduplicate overlapping zones (keep newest)
+   DeduplicateZones();
+   
+   int h4c=0, dc=0, wc=0;
+   for(int i=0; i<g_zone_count; i++)
+   {
+      if(g_zones[i].type==2) h4c++;
+      else if(g_zones[i].type==0) dc++;
+      else wc++;
+   }
+   Print("[Gold RSI] Zones: ", g_zone_count, " raw (H4:", h4c, " D:", dc, " W:", wc,
+         ") → ", g_final_count, " after dedup");
 }
 
 //+------------------------------------------------------------------+
@@ -298,6 +352,84 @@ void AddZone(datetime t, double op, double cl, int type)
    g_zones[i].range_low = MathMin(op, cl);
    g_zones[i].type = type;
    g_zones[i].active = false;
+   g_zones[i].distance = 0;
+}
+
+//+------------------------------------------------------------------+
+//| Deduplicate: if zones overlap (within threshold), keep the NEWEST|
+//+------------------------------------------------------------------+
+void DeduplicateZones()
+{
+   g_final_count = 0;
+   ArrayResize(g_final_zones, 0);
+   
+   double cp = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   if(cp <= 0) cp = 1000;
+   
+   double fw = cp * (InpZoneFilter / 100.0);
+   
+   // Filter zones within range
+   DojiZone filtered[];
+   int fcount = 0;
+   ArrayResize(filtered, g_zone_count);
+   
+   for(int i = 0; i < g_zone_count; i++)
+   {
+      if(g_zones[i].time >= TimeCurrent()) continue;
+      g_zones[i].distance = MathAbs(g_zones[i].midpoint - cp);
+      if(g_zones[i].distance > fw) continue;
+      filtered[fcount] = g_zones[i];
+      fcount++;
+   }
+   
+   // Sort by distance (closest first)
+   for(int i = 0; i < fcount - 1; i++)
+   {
+      for(int j = i + 1; j < fcount; j++)
+      {
+         if(filtered[j].distance < filtered[i].distance)
+         {
+            DojiZone tmp = filtered[i];
+            filtered[i] = filtered[j];
+            filtered[j] = tmp;
+         }
+      }
+   }
+   
+   // Remove overlapping zones — keep the one with LATER time (newer)
+   bool removed[];
+   ArrayResize(removed, fcount);
+   for(int i = 0; i < fcount; i++) removed[i] = false;
+   
+   double overlapDist = cp * (InpOverlapThreshold / 100.0);
+   
+   for(int i = 0; i < fcount; i++)
+   {
+      if(removed[i]) continue;
+      for(int j = i + 1; j < fcount; j++)
+      {
+         if(removed[j]) continue;
+         // Check if zones overlap
+         double midDist = MathAbs(filtered[i].midpoint - filtered[j].midpoint);
+         if(midDist < overlapDist)
+         {
+            // They overlap — keep the NEWER one (later time)
+            if(filtered[j].time > filtered[i].time)
+               removed[i] = true; // j is newer, remove i
+            else
+               removed[j] = true; // i is newer, remove j
+         }
+      }
+   }
+   
+   // Build final array
+   for(int i = 0; i < fcount; i++)
+   {
+      if(removed[i]) continue;
+      g_final_count++;
+      ArrayResize(g_final_zones, g_final_count);
+      g_final_zones[g_final_count - 1] = filtered[i];
+   }
 }
 
 //+------------------------------------------------------------------+
@@ -347,13 +479,13 @@ void AddSignal(datetime t, double price, int level, int dir)
 //+------------------------------------------------------------------+
 void DrawSignals()
 {
-   ObjectsDeleteAll(0, "RSI_SIG_");
+   ObjectsDeleteAll(0, "GZ_SIG_");
    if(g_signal_count == 0) return;
    
    int start = MathMax(0, g_signal_count - InpSignalCount);
    for(int i = start; i < g_signal_count; i++)
    {
-      string nm = "RSI_SIG_" + IntegerToString(i);
+      string nm = "GZ_SIG_" + IntegerToString(i);
       int ac = g_signals[i].direction == 1 ? 233 : 234;
       color cl = g_signals[i].direction == 1 ? C'91,140,90' : C'181,107,107';
       double off = g_signals[i].price * 0.003;
@@ -366,7 +498,7 @@ void DrawSignals()
       ObjectSetInteger(0, nm, OBJPROP_WIDTH, 2);
       ObjectSetInteger(0, nm, OBJPROP_SELECTABLE, false);
       
-      string ln = "RSI_SIG_L_" + IntegerToString(i);
+      string ln = "GZ_SIG_L_" + IntegerToString(i);
       if(ObjectFind(0, ln) < 0)
          ObjectCreate(0, ln, OBJ_TEXT, 0, g_signals[i].time, pp);
       ObjectSetString(0, ln, OBJPROP_TEXT, StringFormat("%s%d", g_signals[i].direction==1?"B":"S", g_signals[i].level));
@@ -377,53 +509,37 @@ void DrawSignals()
 }
 
 //+------------------------------------------------------------------+
+//| Draw zones on chart (using deduplicated final zones)             |
+//+------------------------------------------------------------------+
 void DrawZonesOnChart()
 {
    double cp = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    if(cp <= 0) return;
    
-   ObjectsDeleteAll(0, "RSI_ZONE_");
+   ObjectsDeleteAll(0, "GZ_ZONE_");
    
-   double fw = cp * (InpZoneFilter / 100.0);
+   int maxShow = MathMin(g_final_count, InpMaxZonesToShow);
    
-   // Sort zones by proximity to current price
-   // Create sorted index
-   int sorted[];
-   ArrayResize(sorted, g_zone_count);
-   for(int i = 0; i < g_zone_count; i++) sorted[i] = i;
-   
-   // Simple bubble sort by distance
-   for(int i = 0; i < g_zone_count - 1; i++)
+   for(int i = 0; i < maxShow; i++)
    {
-      for(int j = i + 1; j < g_zone_count; j++)
-      {
-         double di = MathAbs(g_zones[sorted[i]].midpoint - cp);
-         double dj = MathAbs(g_zones[sorted[j]].midpoint - cp);
-         if(dj < di)
-         {
-            int tmp = sorted[i]; sorted[i] = sorted[j]; sorted[j] = tmp;
-         }
-      }
-   }
-   
-   int shown = 0;
-   for(int s = 0; s < g_zone_count && shown < InpMaxZonesToShow; s++)
-   {
-      int i = sorted[s];
-      if(g_zones[i].time >= TimeCurrent()) continue;
-      if(MathAbs(g_zones[i].midpoint - cp) > fw) continue;
-      
       double tol = cp * 0.002;
-      bool inside = (cp >= g_zones[i].range_low - tol && cp <= g_zones[i].range_high + tol);
-      g_zones[i].active = inside;
+      bool inside = (cp >= g_final_zones[i].range_low - tol && cp <= g_final_zones[i].range_high + tol);
+      g_final_zones[i].active = inside;
       
-      string nm = "RSI_ZONE_" + IntegerToString(shown);
+      string nm = "GZ_ZONE_" + IntegerToString(i);
       datetime t2 = TimeCurrent() + PeriodSeconds(PERIOD_M30) * 200;
       
       if(ObjectFind(0, nm) < 0)
-         ObjectCreate(0, nm, OBJ_RECTANGLE, 0, g_zones[i].time, g_zones[i].range_high, t2, g_zones[i].range_low);
+         ObjectCreate(0, nm, OBJ_RECTANGLE, 0, g_final_zones[i].time, g_final_zones[i].range_high, t2, g_final_zones[i].range_low);
       
-      color zc = g_zones[i].type == 1 ? InpWeeklyZoneColor : InpDailyZoneColor;
+      color zc;
+      string prefix;
+      switch(g_final_zones[i].type)
+      {
+         case 1: zc = InpWeeklyZoneColor; prefix = "W"; break;
+         case 2: zc = InpH4ZoneColor; prefix = "H4"; break;
+         default: zc = InpDailyZoneColor; prefix = "D"; break;
+      }
       if(inside) zc = C'255,220,60';
       
       ObjectSetInteger(0, nm, OBJPROP_COLOR, zc);
@@ -432,73 +548,64 @@ void DrawZonesOnChart()
       ObjectSetInteger(0, nm, OBJPROP_WIDTH, 2);
       ObjectSetInteger(0, nm, OBJPROP_SELECTABLE, false);
       
-      // Label with date, type, O/C
-      string ln = "RSI_ZONE_L_" + IntegerToString(shown);
-      string lt = StringFormat("%s %s O:%.2f C:%.2f",
-                               g_zones[i].type == 1 ? "W" : "D",
-                               TimeToString(g_zones[i].time, TIME_DATE),
-                               g_zones[i].open, g_zones[i].close);
+      // Label
+      string ln = "GZ_ZONE_L_" + IntegerToString(i);
+      string lt = StringFormat("%s %s O:%.2f C:%.2f", prefix,
+                               TimeToString(g_final_zones[i].time, TIME_DATE),
+                               g_final_zones[i].open, g_final_zones[i].close);
       if(ObjectFind(0, ln) < 0)
-         ObjectCreate(0, ln, OBJ_TEXT, 0, g_zones[i].time, g_zones[i].range_high + cp * 0.003);
+         ObjectCreate(0, ln, OBJ_TEXT, 0, g_final_zones[i].time, g_final_zones[i].range_high + cp * 0.003);
       ObjectSetString(0, ln, OBJPROP_TEXT, lt);
       ObjectSetInteger(0, ln, OBJPROP_COLOR, zc);
       ObjectSetInteger(0, ln, OBJPROP_FONTSIZE, 9);
       ObjectSetInteger(0, ln, OBJPROP_SELECTABLE, false);
-      
-      shown++;
    }
 }
 
 //+------------------------------------------------------------------+
-//| Draw panel — MOVABLE (user can drag background)                  |
+//| Draw panel — MOVABLE (drag background)                           |
 //+------------------------------------------------------------------+
 void DrawPanel()
 {
-   // Only delete text objects, NOT the background (so user can drag it)
-   ObjectsDeleteAll(0, "RSI_PNL_T");
+   // Delete only text objects, keep background
+   ObjectsDeleteAll(0, "GZ_PNL_T");
    
    double price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    if(price <= 0) return;
    
-   string bg = "RSI_PNL_BG";
+   string bg = "GZ_PNL_BG";
    
-   // Check if background exists (created before or dragged by user)
-   if(ObjectFind(0, bg) >= 0)
+   // Create or update background
+   if(ObjectFind(0, bg) < 0)
    {
-      // Read current position (user may have moved it)
-      g_panel_x = (int)ObjectGetInteger(0, bg, OBJPROP_XDISTANCE);
-      g_panel_y = (int)ObjectGetInteger(0, bg, OBJPROP_YDISTANCE);
-      g_panel_corner = (ENUM_BASE_CORNER)ObjectGetInteger(0, bg, OBJPROP_CORNER);
-      // Update size in case it changed
-      ObjectSetInteger(0, bg, OBJPROP_XSIZE, PANEL_W);
-      ObjectSetInteger(0, bg, OBJPROP_YSIZE, PANEL_H);
-   }
-   else
-   {
-      // Create new background
       ObjectCreate(0, bg, OBJ_RECTANGLE_LABEL, 0, 0, 0);
-      ObjectSetInteger(0, bg, OBJPROP_CORNER, g_panel_corner);
+      ObjectSetInteger(0, bg, OBJPROP_CORNER, CORNER_LEFT_UPPER);
       ObjectSetInteger(0, bg, OBJPROP_XDISTANCE, g_panel_x);
       ObjectSetInteger(0, bg, OBJPROP_YDISTANCE, g_panel_y);
-      ObjectSetInteger(0, bg, OBJPROP_XSIZE, PANEL_W);
-      ObjectSetInteger(0, bg, OBJPROP_YSIZE, PANEL_H);
+      ObjectSetInteger(0, bg, OBJPROP_XSIZE, PW);
+      ObjectSetInteger(0, bg, OBJPROP_YSIZE, PH);
       ObjectSetInteger(0, bg, OBJPROP_BGCOLOR, InpPanelBgColor);
       ObjectSetInteger(0, bg, OBJPROP_BORDER_TYPE, BORDER_FLAT);
-      ObjectSetInteger(0, bg, OBJPROP_COLOR, C'140,135,130');
+      ObjectSetInteger(0, bg, OBJPROP_COLOR, C'120,115,110');
       ObjectSetInteger(0, bg, OBJPROP_WIDTH, 2);
-      // IMPORTANT: selectable = true so user can DRAG it
-      ObjectSetInteger(0, bg, OBJPROP_SELECTABLE, true);
-      ObjectSetInteger(0, bg, OBJPROP_SELECTED, false);
-      ObjectSetInteger(0, bg, OBJPROP_BACK, false);
    }
    
-   // Text colors (use input colors for theme compatibility)
+   // ALWAYS read position (user may have dragged)
+   g_panel_x = (int)ObjectGetInteger(0, bg, OBJPROP_XDISTANCE);
+   g_panel_y = (int)ObjectGetInteger(0, bg, OBJPROP_YDISTANCE);
+   
+   // ALWAYS ensure selectable
+   ObjectSetInteger(0, bg, OBJPROP_SELECTABLE, true);
+   ObjectSetInteger(0, bg, OBJPROP_SELECTED, false);
+   ObjectSetInteger(0, bg, OBJPROP_BACK, false);
+   ObjectSetInteger(0, bg, OBJPROP_HIDDEN, false);
+   
+   // Colors
    color cT = InpPanelTextColor;
-   color cL = C'100,95,90';
    color cV = C'60,55,50';
-   color cR = C'91,140,90';   // green
-   color cD = C'192,138,90';  // peach
-   color cP = C'181,107,107'; // red
+   color cR = C'91,140,90';
+   color cD = C'192,138,90';
+   color cP = C'181,107,107';
    color cA = C'200,80,80';
    color cB = C'91,140,90';
    color cS = C'181,107,107';
@@ -547,29 +654,34 @@ void DrawPanel()
    PT("t10", x, y, "--- زون‌های دوجی ---", cT, 9, f); y += LH - 2;
    
    int nidx = -1; double ndist = 999999; bool inside = false;
-   for(int i = 0; i < g_zone_count; i++)
+   for(int i = 0; i < g_final_count; i++)
    {
-      if(g_zones[i].active)
+      if(g_final_zones[i].active)
       {
-         PT("t11", x, y, StringFormat("داخل زون %s!", g_zones[i].type==1?"هفتگی":"روزانه"), cA, 10, f);
+         string ztype = g_final_zones[i].type==1 ? "هفتگی" : g_final_zones[i].type==2 ? "H4" : "روزانه";
+         PT("t11", x, y, StringFormat("داخل زون %s!", ztype), cA, 10, f);
          y += LH - 2; inside = true;
       }
-      double dist = MathAbs(g_zones[i].midpoint - price);
-      if(dist < ndist && !g_zones[i].active) { ndist = dist; nidx = i; }
+      if(g_final_zones[i].distance < ndist && !g_final_zones[i].active)
+      {
+         ndist = g_final_zones[i].distance;
+         nidx = i;
+      }
    }
    
    if(!inside && nidx >= 0)
    {
-      PT("t12", x, y, StringFormat("نزدیک‌ترین: %s @ %.2f", g_zones[nidx].type==1?"هفتگی":"روزانه", g_zones[nidx].midpoint), cL, 9, f);
+      string zt = g_final_zones[nidx].type==1 ? "هفتگی" : g_final_zones[nidx].type==2 ? "H4" : "روزانه";
+      PT("t12", x, y, StringFormat("نزدیک‌ترین: %s @ %.2f", zt, g_final_zones[nidx].midpoint), C'100,95,90', 9, f);
       y += LH - 4;
       PT("t13", x, y, StringFormat("  فاصله: %.0f pip (%.2f%%)", ndist*10, ndist/price*100), cM, 9, f);
       y += LH - 4;
-      PT("t14", x, y, StringFormat("  O:%.2f  C:%.2f", g_zones[nidx].open, g_zones[nidx].close), cM, 9, f);
+      PT("t14", x, y, StringFormat("  O:%.2f  C:%.2f", g_final_zones[nidx].open, g_final_zones[nidx].close), cM, 9, f);
       y += LH;
    }
    else if(!inside)
    {
-      PT("t12", x, y, StringFormat("زون‌های یافت شده: %d", g_zone_count), cM, 9, f);
+      PT("t12", x, y, StringFormat("زون‌ها: %d یافت شده", g_zone_count), cM, 9, f);
       y += LH;
    }
    
@@ -603,18 +715,16 @@ void DrawPanel()
    PT("t22", x, y, StringFormat("سشن: %s", ss), cM, 8, f); y += LH - 4;
    PT("t23", x, y, StringFormat("بروز: %s", TimeToString(TimeCurrent(), TIME_MINUTES)), cM, 8, f);
    
-   // Hint at bottom
-   y += LH + 4;
-   PT("t24", x, y, "» برای جابجایی پنل، آن را بکشید", cM, 7, f);
+   y += LH + 6;
+   PT("t24", x, y, "» پنل را بکشید برای جابجایی", cM, 7, f);
 }
 
-//--- Helper: Panel Text (uses prefix RSI_PNL_T so they get deleted on redraw)
 void PT(string id, int x, int y, string text, color clr, int sz, string font)
 {
-   string name = "RSI_PNL_T_" + id;
+   string name = "GZ_PNL_T_" + id;
    if(ObjectFind(0, name) < 0)
       ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
-   ObjectSetInteger(0, name, OBJPROP_CORNER, g_panel_corner);
+   ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
    ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
    ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
    ObjectSetString(0, name, OBJPROP_TEXT, text);
@@ -623,6 +733,7 @@ void PT(string id, int x, int y, string text, color clr, int sz, string font)
    ObjectSetString(0, name, OBJPROP_FONT, font);
    ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, name, OBJPROP_BACK, false);
+   ObjectSetInteger(0, name, OBJPROP_HIDDEN, true); // hidden from object list
 }
 
 //+------------------------------------------------------------------+
@@ -663,14 +774,14 @@ void CheckAlerts()
    
    if(InpAlertOnZone)
    {
-      for(int i = 0; i < g_zone_count; i++)
+      for(int i = 0; i < g_final_count; i++)
       {
-         if(g_zones[i].active && now - g_last_alert_zone > 300)
+         if(g_final_zones[i].active && now - g_last_alert_zone > 300)
          {
+            string zt = g_final_zones[i].type==1 ? "هفتگی" : g_final_zones[i].type==2 ? "H4" : "روزانه";
             Alert(StringFormat("قیمت وارد زون دوجی %s شد!\nزون: %.2f - %.2f\nتاریخ: %s",
-                               g_zones[i].type == 1 ? "هفتگی" : "روزانه",
-                               g_zones[i].range_low, g_zones[i].range_high,
-                               TimeToString(g_zones[i].time, TIME_DATE)));
+                               zt, g_final_zones[i].range_low, g_final_zones[i].range_high,
+                               TimeToString(g_final_zones[i].time, TIME_DATE)));
             g_last_alert_zone = now;
             break;
          }
