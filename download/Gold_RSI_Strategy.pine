@@ -1,28 +1,29 @@
 //@version=5
-// Gold RSI Strategy — overlay=true (everything on main chart)
-// You keep your own RSI. This indicator draws zones, signals, sessions on the chart.
+// Gold RSI Strategy — overlay=true (all on main chart)
+// Zones: H4 + Daily + Weekly + Monthly | Sessions bg | Prev day H/L | Signals
 
-indicator("Gold RSI Strategy", shorttitle="RSI Zones", overlay=true, max_boxes_count=100, max_labels_count=200, max_lines_count=200)
+indicator("Gold RSI Strategy", shorttitle="RSI Zones", overlay=true, max_boxes_count=200, max_labels_count=500, max_lines_count=500)
 
 // === INPUTS ===
 len30 = input.int(30, "RSI 30 Period")
 osLevel = input.float(40.0, "Oversold")
 obLevel = input.float(60.0, "Overbought")
 tol = input.float(1.0, "Tolerance")
-dojiThresh = input.float(0.10, "Doji Threshold")
-showH4 = input.bool(true, "H4 Zones")
-showD1 = input.bool(true, "Daily Zones")
-showW1 = input.bool(true, "Weekly Zones")
-zFilter = input.float(25.0, "Zone Filter %")
+dojiThresh = input.float(0.12, "Doji Threshold (0.12=12%)")
+zFilter = input.float(30.0, "Zone Filter %")
+showH4 = input.bool(true, "H4 Zones (blue)")
+showD1 = input.bool(true, "Daily Zones (green)")
+showW1 = input.bool(true, "Weekly Zones (orange)")
+showMN = input.bool(true, "Monthly Zones (purple)")
 showSigs = input.bool(true, "Buy/Sell Signals")
-showSess = input.bool(true, "Session Lines")
+showSess = input.bool(true, "Session Backgrounds")
 showDayMark = input.bool(true, "Day Markers")
+showPrevHL = input.bool(true, "Previous Day High/Low")
 pCorner = input.string("top_right", "Panel", options=["top_left","top_right","bottom_left","bottom_right"])
 
-// === RSI (calculated internally, NOT plotted) ===
+// === RSI (internal) ===
 rsi30 = ta.rsi(close, len30)
 rsi14 = ta.rsi(close, 14)
-
 lo40 = osLevel - tol
 hi40 = osLevel + tol
 lo60 = obLevel - tol
@@ -42,15 +43,51 @@ else
     cz := 0
     curZone := 0
 
-// === BUY/SELL SIGNALS ===
-buySig = inZ40 and not inZ40[1]
-sellSig = inZ60 and not inZ60[1]
-atrV = ta.atr(14)
+// === PATTERN DETECTION ===
+cBody = math.abs(close - open)
+cRng = high - low
+isDoji = cRng > 0 and cBody <= cRng * 0.10
+isBullPin = cRng > 0 and (math.min(open, close) - low) >= cRng * 0.6 and cBody <= cRng * 0.35
+isBearPin = cRng > 0 and (high - math.max(open, close)) >= cRng * 0.6 and cBody <= cRng * 0.35
+isBullEng = close[1] < open[1] and close > open and math.max(open, close) >= math.max(open[1], close[1]) and math.min(open, close) <= math.min(open[1], close[1])
+isBearEng = close[1] > open[1] and close < open and math.max(open, close) >= math.max(open[1], close[1]) and math.min(open, close) <= math.min(open[1], close[1])
+hasPattern = isDoji or isBullPin or isBearPin or isBullEng or isBearEng
+
+// === SIGNALS (only when RSI in zone + pattern or 3+ candles in zone) ===
+buySig = inZ40 and not inZ40[1] and (hasPattern or cz >= 3)
+sellSig = inZ60 and not inZ60[1] and (hasPattern or cz >= 3)
 
 plotshape(showSigs and buySig, title="Buy", style=shape.triangleup, location=location.belowbar, color=color.green, size=size.small, text="BUY", textcolor=color.green)
 plotshape(showSigs and sellSig, title="Sell", style=shape.triangledown, location=location.abovebar, color=color.red, size=size.small, text="SELL", textcolor=color.red)
 
+// === SESSION BACKGROUNDS ===
+cH = hour(time)
+bgcolor(showSess and cH >= 0 and cH < 7 ? color.new(color.teal, 92) : na, title="Asia")
+bgcolor(showSess and cH >= 7 and cH < 13 ? color.new(color.orange, 92) : na, title="Europe")
+bgcolor(showSess and cH >= 13 and cH < 21 ? color.new(color.red, 92) : na, title="US")
+
+// === PREVIOUS DAY HIGH/LOW ===
+pdh = request.security(syminfo.tickerid, "D", high[1])
+pdl = request.security(syminfo.tickerid, "D", low[1])
+isToday = ta.change(time("D")) == 0
+
+plot(showPrevHL and isToday ? pdh : na, "Prev High", color=color.new(color.green, 20), linewidth=1, style=plot.style_line)
+plot(showPrevHL and isToday ? pdl : na, "Prev Low", color=color.new(color.red, 20), linewidth=1, style=plot.style_line)
+
+if showPrevHL and newDay
+    label.new(bar_index, pdh, "PrevH " + str.tostring(pdh, "#.##"), color=color.green, textcolor=color.white, style=label.style_label_down, size=size.tiny)
+    label.new(bar_index, pdl, "PrevL " + str.tostring(pdl, "#.##"), color=color.red, textcolor=color.white, style=label.style_label_up, size=size.tiny)
+
+// === DAY MARKERS ===
+hi50 = ta.highest(high, 50)
+lo50 = ta.lowest(low, 50)
+newDay = ta.change(time("D")) != 0
+if showDayMark and newDay
+    line.new(bar_index, hi50, bar_index, lo50, color=color.new(color.gray, 60), style=line.style_dotted, width=1)
+    label.new(bar_index, hi50, "Day " + str.tostring(dayofmonth), color=color.new(color.gray, 30), textcolor=color.gray, style=label.style_label_down, size=size.tiny)
+
 // === DOJI ZONES ===
+// H4 (blue)
 [h4o,h4c,h4h,h4l,h4t] = request.security(syminfo.tickerid, "240", [open,close,high,low,time])
 var float lH4 = na
 newH4 = na(lH4) or h4t != lH4
@@ -66,9 +103,10 @@ if showH4 and h4D and not na(h4DO)
     zLo = math.min(h4DO, h4DC)
     zHi = math.max(h4DO, h4DC)
     if math.abs((h4DO+h4DC)/2 - close) / close * 100 <= zFilter
-        box.new(bar_index-50, zHi, bar_index+100, zLo, border_color=color.rgb(140,165,215), border_width=1, bgcolor=color.rgb(140,165,215,80), extend=extend.right)
-        label.new(bar_index-50, zHi, "H4 "+str.tostring(h4DO,"#.##")+"/"+str.tostring(h4DC,"#.##"), color=color.rgb(140,165,215), textcolor=color.white, style=label.style_label_down, size=size.tiny)
+        box.new(bar_index-50, zHi, bar_index+100, zLo, border_color=color.rgb(100,150,220), border_width=1, bgcolor=color.rgb(100,150,220,80), extend=extend.right)
+        label.new(bar_index-50, zHi, "H4 Doji " + str.tostring(h4DO, "#.##") + "-" + str.tostring(h4DC, "#.##"), color=color.rgb(100,150,220), textcolor=color.white, style=label.style_label_down, size=size.tiny)
 
+// Daily (green)
 [d1o,d1c,d1h,d1l,d1t] = request.security(syminfo.tickerid, "D", [open,close,high,low,time])
 var float lD1 = na
 newD1 = na(lD1) or d1t != lD1
@@ -84,9 +122,10 @@ if showD1 and d1D and not na(d1DO)
     zLo = math.min(d1DO, d1DC)
     zHi = math.max(d1DO, d1DC)
     if math.abs((d1DO+d1DC)/2 - close) / close * 100 <= zFilter
-        box.new(bar_index-50, zHi, bar_index+100, zLo, border_color=color.rgb(165,175,155), border_width=1, bgcolor=color.rgb(165,175,155,80), extend=extend.right)
-        label.new(bar_index-50, zHi, "D "+str.tostring(d1DO,"#.##")+"/"+str.tostring(d1DC,"#.##"), color=color.rgb(165,175,155), textcolor=color.white, style=label.style_label_down, size=size.tiny)
+        box.new(bar_index-50, zHi, bar_index+100, zLo, border_color=color.rgb(100,170,100), border_width=1, bgcolor=color.rgb(100,170,100,80), extend=extend.right)
+        label.new(bar_index-50, zHi, "Daily Doji " + str.tostring(d1DO, "#.##") + "-" + str.tostring(d1DC, "#.##"), color=color.rgb(100,170,100), textcolor=color.white, style=label.style_label_down, size=size.tiny)
 
+// Weekly (orange)
 [w1o,w1c,w1h,w1l,w1t] = request.security(syminfo.tickerid, "W", [open,close,high,low,time])
 var float lW1 = na
 newW1 = na(lW1) or w1t != lW1
@@ -103,30 +142,26 @@ if showW1 and w1D and not na(w1DO)
     zHi = math.max(w1DO, w1DC)
     if math.abs((w1DO+w1DC)/2 - close) / close * 100 <= zFilter
         box.new(bar_index-50, zHi, bar_index+100, zLo, border_color=color.rgb(235,155,70), border_width=1, bgcolor=color.rgb(235,155,70,80), extend=extend.right)
-        label.new(bar_index-50, zHi, "W "+str.tostring(w1DO,"#.##")+"/"+str.tostring(w1DC,"#.##"), color=color.rgb(235,155,70), textcolor=color.white, style=label.style_label_down, size=size.tiny)
+        label.new(bar_index-50, zHi, "Weekly Doji " + str.tostring(w1DO, "#.##") + "-" + str.tostring(w1DC, "#.##"), color=color.rgb(235,155,70), textcolor=color.white, style=label.style_label_down, size=size.tiny)
 
-// === DAY MARKERS ===
-hi50 = ta.highest(high, 50)
-lo50 = ta.lowest(low, 50)
-newDay = ta.change(time("D")) != 0
-if showDayMark and newDay
-    line.new(bar_index, hi50, bar_index, lo50, color=color.new(color.gray,70), style=line.style_dotted, width=1)
-    label.new(bar_index, hi50, str.tostring(dayofmonth), color=color.new(color.gray,40), textcolor=color.gray, style=label.style_label_down, size=size.tiny)
-
-// === SESSION MARKERS ===
-cH = hour(time)
-newH = ta.change(cH) != 0
-if showSess and newH and cH == 0
-    line.new(bar_index, hi50, bar_index, lo50, color=color.new(color.teal,50), style=line.style_dashed, width=1)
-    label.new(bar_index, hi50, "Asia", color=color.teal, textcolor=color.white, style=label.style_label_down, size=size.tiny)
-if showSess and newH and cH == 7
-    line.new(bar_index, hi50, bar_index, lo50, color=color.new(color.orange,50), style=line.style_dashed, width=1)
-    label.new(bar_index, hi50, "EU", color=color.orange, textcolor=color.white, style=label.style_label_down, size=size.tiny)
-if showSess and newH and cH == 13
-    line.new(bar_index, hi50, bar_index, lo50, color=color.new(color.red,50), style=line.style_dashed, width=1)
-    label.new(bar_index, hi50, "US", color=color.red, textcolor=color.white, style=label.style_label_down, size=size.tiny)
-if showSess and newH and cH == 21
-    line.new(bar_index, hi50, bar_index, lo50, color=color.new(color.gray,70), style=line.style_dotted, width=1)
+// Monthly (purple)
+[mno,mnc,mnh,mnl,mnt] = request.security(syminfo.tickerid, "M", [open,close,high,low,time])
+var float lMN = na
+newMN = na(lMN) or mnt != lMN
+lMN := mnt
+var bool mnD = false
+var float mnDO = na
+var float mnDC = na
+if newMN and not na(mno[1])
+    mnD := (mnh[1]-mnl[1]) > 0 and math.abs(mnc[1]-mno[1]) <= dojiThresh * (mnh[1]-mnl[1])
+    mnDO := mno[1]
+    mnDC := mnc[1]
+if showMN and mnD and not na(mnDO)
+    zLo = math.min(mnDO, mnDC)
+    zHi = math.max(mnDO, mnDC)
+    if math.abs((mnDO+mnDC)/2 - close) / close * 100 <= zFilter
+        box.new(bar_index-50, zHi, bar_index+100, zLo, border_color=color.rgb(180,100,200), border_width=1, bgcolor=color.rgb(180,100,200,80), extend=extend.right)
+        label.new(bar_index-50, zHi, "Monthly Doji " + str.tostring(mnDO, "#.##") + "-" + str.tostring(mnDC, "#.##"), color=color.rgb(180,100,200), textcolor=color.white, style=label.style_label_down, size=size.tiny)
 
 // === PANEL ===
 d40 = math.abs(rsi30 - osLevel)
@@ -154,8 +189,7 @@ pR = rR/sR
 pD = rD/sR
 pP = rP/sR
 
-patN = (high-low) > 0 and math.abs(close-open) <= (high-low)*0.10 ? "Doji" : (high-low) > 0 and (math.min(open,close)-low) >= (high-low)*0.6 and math.abs(close-open) <= (high-low)*0.35 ? "Bull Pin" : "None"
-
+patN = isDoji ? "Doji" : isBullPin ? "Bull Pin" : isBearPin ? "Bear Pin" : isBullEng ? "Bull Engulf" : isBearEng ? "Bear Engulf" : "None"
 slP = curZone == 60 ? close+close*0.004 : curZone == 40 ? close-close*0.004 : na
 tpP = curZone == 60 ? close-close*0.008 : curZone == 40 ? close+close*0.008 : na
 rrR = curZone > 0 and not na(slP) ? math.abs(tpP-close)/math.abs(close-slP) : na
@@ -200,8 +234,9 @@ if barstate.islast
         table.cell(pnl,1,13,"1:"+str.tostring(rrR,"#.##"),text_color=color.rgb(192,138,90),text_size=size.small,bgcolor=bg)
 
 // === ALERTS ===
-alertcondition(buySig, "Buy Zone 40", "RSI entered zone 40")
-alertcondition(sellSig, "Sell Zone 60", "RSI entered zone 60")
-alertcondition(h4D and newH4, "H4 Doji", "H4 Doji formed")
-alertcondition(d1D and newD1, "Daily Doji", "Daily Doji formed")
-alertcondition(w1D and newW1, "Weekly Doji", "Weekly Doji formed")
+alertcondition(buySig, "Buy Signal", "RSI in zone 40 + pattern — BUY")
+alertcondition(sellSig, "Sell Signal", "RSI in zone 60 + pattern — SELL")
+alertcondition(h4D and newH4, "H4 Doji", "H4 Doji zone formed")
+alertcondition(d1D and newD1, "Daily Doji", "Daily Doji zone formed")
+alertcondition(w1D and newW1, "Weekly Doji", "Weekly Doji zone formed")
+alertcondition(mnD and newMN, "Monthly Doji", "Monthly Doji zone formed")
