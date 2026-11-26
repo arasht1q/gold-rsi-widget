@@ -1,12 +1,10 @@
 //@version=5
-// Gold RSI Strategy M30 — Pine Script v5
-// RSI(14)+RSI(30) in sub-window | Zones/Signals/Sessions on main chart | Divergences in RSI
-
-indicator("Gold RSI Strategy M30", shorttitle="RSI14+RSI30", overlay=false, max_boxes_count=100, max_labels_count=200, max_lines_count=200)
+// Gold RSI Chart Overlay — main chart (zones, signals, sessions)
+// Add this FIRST to the chart
+indicator("Gold RSI Chart Overlay", shorttitle="RSI Zones+Signals", overlay=true, max_boxes_count=100, max_labels_count=200, max_lines_count=200)
 
 // === INPUTS ===
-len14 = input.int(14, "RSI 14")
-len30 = input.int(30, "RSI 30")
+len30 = input.int(30, "RSI 30 Period")
 osLevel = input.float(40.0, "Oversold")
 obLevel = input.float(60.0, "Overbought")
 tol = input.float(1.0, "Tolerance")
@@ -15,108 +13,59 @@ showH4 = input.bool(true, "H4 Zones")
 showD1 = input.bool(true, "Daily Zones")
 showW1 = input.bool(true, "Weekly Zones")
 zFilter = input.float(25.0, "Zone Filter %")
-showSigs = input.bool(true, "Signals on chart")
-showPanel = input.bool(true, "Panel")
-showSess = input.bool(true, "Session lines")
-showDayMark = input.bool(true, "Day markers")
-showDiv = input.bool(true, "Divergences in RSI")
+showSigs = input.bool(true, "Buy/Sell Signals")
+showSess = input.bool(true, "Session Lines")
+showDayMark = input.bool(true, "Day Markers")
 pCorner = input.string("top_right", "Panel", options=["top_left", "top_right", "bottom_left", "bottom_right"])
 
-// === RSI ===
-rsi14 = ta.rsi(close, len14)
+// === RSI (calculated but not plotted — for signal detection) ===
 rsi30 = ta.rsi(close, len30)
-plot(rsi14, "RSI(14)", color=color.rgb(135, 170, 200), linewidth=1)
-plot(rsi30, "RSI(30)", color=color.rgb(70, 90, 110), linewidth=2)
-hline(osLevel, "OS", color=color.gray, linestyle=hline.style_dashed)
-hline(obLevel, "OB", color=color.gray, linestyle=hline.style_dashed)
-hline(50, "Mid", color=color.new(color.gray, 70), linestyle=hline.style_dotted)
+rsi14 = ta.rsi(close, 14)
 
-// Zone highlight in RSI
-lo40 = osLevel - tol, hi40 = osLevel + tol
-lo60 = obLevel - tol, hi60 = obLevel + tol
+// Zone status
+lo40 = osLevel - tol
+hi40 = osLevel + tol
+lo60 = obLevel - tol
+hi60 = obLevel + tol
 inZ40 = rsi30 >= lo40 and rsi30 <= hi40
 inZ60 = rsi30 >= lo60 and rsi30 <= hi60
-bgcolor(inZ40 ? color.new(color.green, 85) : na)
-bgcolor(inZ60 ? color.new(color.red, 85) : na)
 
 var int cz = 0
 var int curZone = 0
 if inZ40
-    curZone := 40, cz := cz + 1
+    curZone := 40
+    cz := cz + 1
 else if inZ60
-    curZone := 60, cz := cz + 1
+    curZone := 60
+    cz := cz + 1
 else
-    cz := 0, curZone := 0
+    cz := 0
+    curZone := 0
 
-rsiVel = rsi30 - rsi30[10]
-
-// === BUY/SELL SIGNALS ON MAIN CHART ===
+// === BUY/SELL SIGNALS ON CHART ===
 buySig = inZ40 and not inZ40[1]
 sellSig = inZ60 and not inZ60[1]
 
-// Draw signal labels on main chart (not in RSI pane)
-atr = ta.atr(14)
+atrVal = ta.atr(14)
 if showSigs and buySig
-    label.new(bar_index, low - atr * 0.5, "BUY", style=label.style_label_up, color=color.green, textcolor=color.white, size=size.tiny)
+    label.new(bar_index, low - atrVal * 0.3, "BUY", style=label.style_label_up, color=color.green, textcolor=color.white, size=size.tiny)
 if showSigs and sellSig
-    label.new(bar_index, high + atr * 0.5, "SELL", style=label.style_label_down, color=color.red, textcolor=color.white, size=size.tiny)
+    label.new(bar_index, high + atrVal * 0.3, "SELL", style=label.style_label_down, color=color.red, textcolor=color.white, size=size.tiny)
 
-// === DIVERGENCE DETECTION (in RSI pane) ===
-// Pivot detection
-pl_rsi = ta.pivotlow(rsi30, 5, 5)
-ph_rsi = ta.pivothigh(rsi30, 5, 5)
-pl_price = ta.pivotlow(low, 5, 5)
-ph_price = ta.pivothigh(high, 5, 5)
-
-var float lastPL_price = na
-var float lastPL_rsi = na
-var float lastPH_price = na
-var float lastPH_rsi = na
-
-bullDiv = false
-bearDiv = false
-
-if not na(pl_price)
-    if not na(lastPL_price)
-        if pl_price < lastPL_price and rsi30[5] > lastPL_rsi
-            bullDiv := true
-    lastPL_price := pl_price
-    lastPL_rsi := rsi30[5]
-
-if not na(ph_price)
-    if not na(lastPH_price)
-        if ph_price > lastPH_price and rsi30[5] < lastPH_rsi
-            bearDiv := true
-    lastPH_price := ph_price
-    lastPH_rsi := rsi30[5]
-
-// Draw divergence arrows in RSI sub-window
-plotshape(showDiv and bullDiv, title="Bull Div", style=shape.arrowup, location=location.bottom, color=color.green, size=size.small, text="Div", textcolor=color.green)
-plotshape(showDiv and bearDiv, title="Bear Div", style=shape.arrowdown, location=location.top, color=color.red, size=size.small, text="Div", textcolor=color.red)
-
-// Draw divergence lines in RSI pane
-if showDiv and bullDiv
-    line.new(bar_index[10], lastPL_rsi, bar_index[5], rsi30[5], color=color.green, width=1)
-if showDiv and bearDiv
-    line.new(bar_index[10], lastPH_rsi, bar_index[5], rsi30[5], color=color.red, width=1)
-
-// === DOJI ZONES ON MAIN CHART ===
+// === DOJI ZONES ON CHART ===
 [h4o, h4c, h4h, h4l, h4t] = request.security(syminfo.tickerid, "240", [open, close, high, low, time])
 var float lastH4 = na
 isNewH4 = na(lastH4) or h4t != lastH4
 lastH4 := h4t
-
 var bool h4Doji = false
 var float h4DO = na
 var float h4DC = na
-
 if isNewH4 and not na(h4o[1])
     h4r = h4h[1] - h4l[1]
     h4b = math.abs(h4c[1] - h4o[1])
     h4Doji := h4r > 0 and h4b <= dojiThresh * h4r
     h4DO := h4o[1]
     h4DC := h4c[1]
-
 if showH4 and h4Doji and not na(h4DO)
     zLo = math.min(h4DO, h4DC)
     zHi = math.max(h4DO, h4DC)
@@ -130,18 +79,15 @@ if showH4 and h4Doji and not na(h4DO)
 var float lastD1 = na
 isNewD1 = na(lastD1) or d1t != lastD1
 lastD1 := d1t
-
 var bool d1Doji = false
 var float d1DO = na
 var float d1DC = na
-
 if isNewD1 and not na(d1o[1])
     d1r = d1h[1] - d1l[1]
     d1b = math.abs(d1c[1] - d1o[1])
     d1Doji := d1r > 0 and d1b <= dojiThresh * d1r
     d1DO := d1o[1]
     d1DC := d1c[1]
-
 if showD1 and d1Doji and not na(d1DO)
     zLo = math.min(d1DO, d1DC)
     zHi = math.max(d1DO, d1DC)
@@ -155,18 +101,15 @@ if showD1 and d1Doji and not na(d1DO)
 var float lastW1 = na
 isNewW1 = na(lastW1) or w1t != lastW1
 lastW1 := w1t
-
 var bool w1Doji = false
 var float w1DO = na
 var float w1DC = na
-
 if isNewW1 and not na(w1o[1])
     w1r = w1h[1] - w1l[1]
     w1b = math.abs(w1c[1] - w1o[1])
     w1Doji := w1r > 0 and w1b <= dojiThresh * w1r
     w1DO := w1o[1]
     w1DC := w1c[1]
-
 if showW1 and w1Doji and not na(w1DO)
     zLo = math.min(w1DO, w1DC)
     zHi = math.max(w1DO, w1DC)
@@ -176,45 +119,37 @@ if showW1 and w1Doji and not na(w1DO)
         box.new(bar_index - 50, zHi, bar_index + 100, zLo, border_color=color.rgb(235, 155, 70), border_width=1, bgcolor=color.rgb(235, 155, 70, 80), extend=extend.right)
         label.new(bar_index - 50, zHi, "W " + str.tostring(w1DO, "#.##") + "/" + str.tostring(w1DC, "#.##"), color=color.rgb(235, 155, 70), textcolor=color.white, style=label.style_label_down, size=size.tiny)
 
-// === DAY START/END MARKERS ON MAIN CHART ===
+// === DAY MARKERS ===
 isNewDay = ta.change(time("D")) != 0
 if showDayMark and isNewDay
     hi = ta.highest(high, 50)
     lo = ta.lowest(low, 50)
-    line.new(bar_index, hi, bar_index, lo, color=color.new(color.gray, 60), style=line.style_dotted, width=1)
-    label.new(bar_index, hi, "Day " + str.tostring(dayofmonth), color=color.new(color.gray, 50), textcolor=color.gray, style=label.style_label_down, size=size.tiny)
+    line.new(bar_index, hi, bar_index, lo, color=color.new(color.gray, 70), style=line.style_dotted, width=1)
+    label.new(bar_index, hi, str.tostring(dayofmonth), color=color.new(color.gray, 40), textcolor=color.gray, style=label.style_label_down, size=size.tiny)
 
-// === SESSION MARKERS ON MAIN CHART ===
-// Sessions in UTC: Asia 00:00, Europe 07:00, US 13:00, US End 21:00
+// === SESSION MARKERS ===
 curHour = hour(time, "UTC")
-isAsia = ta.change(curHour) != 0 and curHour == 0
-isEurope = ta.change(curHour) != 0 and curHour == 7
-isUS = ta.change(curHour) != 0 and curHour == 13
-isUSEnd = ta.change(curHour) != 0 and curHour == 21
-
-if showSess and isAsia
+if showSess and ta.change(curHour) != 0 and curHour == 0
     hi = ta.highest(high, 50)
-    line.new(bar_index, hi * 1.001, bar_index, hi * 0.999, color=color.new(color.teal, 50), style=line.style_dashed, width=1)
+    line.new(bar_index, hi, bar_index, lo, color=color.new(color.teal, 50), style=line.style_dashed, width=1)
     label.new(bar_index, hi, "Asia", color=color.teal, textcolor=color.white, style=label.style_label_down, size=size.tiny)
-
-if showSess and isEurope
+if showSess and ta.change(curHour) != 0 and curHour == 7
     hi = ta.highest(high, 50)
-    line.new(bar_index, hi * 1.001, bar_index, hi * 0.999, color=color.new(color.orange, 50), style=line.style_dashed, width=1)
+    line.new(bar_index, hi, bar_index, lo, color=color.new(color.orange, 50), style=line.style_dashed, width=1)
     label.new(bar_index, hi, "EU", color=color.orange, textcolor=color.white, style=label.style_label_down, size=size.tiny)
-
-if showSess and isUS
+if showSess and ta.change(curHour) != 0 and curHour == 13
     hi = ta.highest(high, 50)
-    line.new(bar_index, hi * 1.001, bar_index, hi * 0.999, color=color.new(color.red, 50), style=line.style_dashed, width=1)
+    line.new(bar_index, hi, bar_index, lo, color=color.new(color.red, 50), style=line.style_dashed, width=1)
     label.new(bar_index, hi, "US", color=color.red, textcolor=color.white, style=label.style_label_down, size=size.tiny)
-
-if showSess and isUSEnd
+if showSess and ta.change(curHour) != 0 and curHour == 21
     hi = ta.highest(high, 50)
-    line.new(bar_index, hi * 1.001, bar_index, hi * 0.999, color=color.new(color.gray, 70), style=line.style_dotted, width=1)
+    line.new(bar_index, hi, bar_index, lo, color=color.new(color.gray, 70), style=line.style_dotted, width=1)
 
-// === PREDICTION ===
+// === PANEL ===
 d40 = math.abs(rsi30 - osLevel)
 d60 = math.abs(rsi30 - obLevel)
 likely = d40 < d60 ? 40 : 60
+rsiVel = rsi30 - rsi30[10]
 
 mRevCz = likely == 40 ? 1.61 : 1.54
 mRevVel = likely == 40 ? -2.03 : 1.67
@@ -222,11 +157,9 @@ mDivCz = likely == 40 ? 2.78 : 2.17
 mDivVel = likely == 40 ? -3.45 : 3.05
 mPasCz = likely == 40 ? 1.78 : 1.83
 mPasVel = likely == 40 ? -3.40 : 2.16
-
 dRev = math.sqrt(math.pow((cz - mRevCz) / 3.0, 2) * 3.0 + math.pow((rsiVel - mRevVel) / 4.0, 2))
 dDiv = math.sqrt(math.pow((cz - mDivCz) / 3.0, 2) * 3.0 + math.pow((rsiVel - mDivVel) / 4.0, 2))
 dPas = math.sqrt(math.pow((cz - mPasCz) / 3.0, 2) * 3.0 + math.pow((rsiVel - mPasVel) / 4.0, 2))
-
 iRev = 1.0 / (dRev + 0.3)
 iDiv = 1.0 / (dDiv + 0.3)
 iPas = 1.0 / (dPas + 0.3)
@@ -239,22 +172,19 @@ pRev = rRev / sRaw
 pDiv = rDiv / sRaw
 pPas = rPas / sRaw
 
-// === PATTERN ===
 cBody = math.abs(close - open)
 cRng = high - low
-patName = cRng > 0 and cBody <= cRng * 0.10 ? "Doji" : cRng > 0 and (math.min(open, close) - low) >= cRng * 0.6 and cBody <= cRng * 0.35 ? "Bull Pin" : cRng > 0 and (high - math.max(open, close)) >= cRng * 0.6 and cBody <= cRng * 0.35 ? "Bear Pin" : "None"
+patName = cRng > 0 and cBody <= cRng * 0.10 ? "Doji" : "None"
 
-// === TICKET ===
 slP = curZone == 60 ? close + close * 0.004 : curZone == 40 ? close - close * 0.004 : na
 tpP = curZone == 60 ? close - close * 0.008 : curZone == 40 ? close + close * 0.008 : na
 rrR = curZone > 0 and not na(slP) and not na(tpP) ? math.abs(tpP - close) / math.abs(close - slP) : na
 dirT = curZone == 60 ? "SELL" : curZone == 40 ? "BUY" : "-"
 
-// === PANEL ===
 tblP = pCorner == "top_left" ? position.top_left : pCorner == "top_right" ? position.top_right : pCorner == "bottom_left" ? position.bottom_left : position.bottom_right
 var table pnl = table.new(tblP, 2, 14, border_width=1, border_color=color.rgb(180, 175, 170))
 
-if showPanel and barstate.islast
+if barstate.islast
     bg = color.rgb(250, 249, 246)
     lc = color.rgb(120, 115, 110)
     vc = color.rgb(50, 45, 40)
@@ -276,10 +206,10 @@ if showPanel and barstate.islast
     table.cell(pnl, 1, 6, str.tostring(pRev * 100, "#") + "%", text_color=color.rgb(91, 140, 90), text_size=size.small, bgcolor=bg)
     table.cell(pnl, 0, 7, "Divergence", text_color=lc, text_size=size.small, bgcolor=bg)
     table.cell(pnl, 1, 7, str.tostring(pDiv * 100, "#") + "%", text_color=color.rgb(192, 138, 90), text_size=size.small, bgcolor=bg)
-    table.cell(pnl, 0, 8, "Pass-through", text_color=lc, text_size=size.small, bgcolor=bg)
+    table.cell(pnl, 0, 8, "Pass", text_color=lc, text_size=size.small, bgcolor=bg)
     table.cell(pnl, 1, 8, str.tostring(pPas * 100, "#") + "%", text_color=color.rgb(181, 107, 107), text_size=size.small, bgcolor=bg)
     table.cell(pnl, 0, 9, "Pattern", text_color=lc, text_size=size.small, bgcolor=bg)
-    table.cell(pnl, 1, 9, patName, text_color=patName != "None" ? color.rgb(192, 138, 90) : color.rgb(150, 145, 140), text_size=size.small, bgcolor=bg)
+    table.cell(pnl, 1, 9, patName, text_color=color.rgb(150, 145, 140), text_size=size.small, bgcolor=bg)
     if curZone > 0
         table.cell(pnl, 0, 10, "Direction", text_color=lc, text_size=size.small, bgcolor=bg)
         table.cell(pnl, 1, 10, dirT, text_color=dirT == "BUY" ? color.rgb(91, 140, 90) : color.rgb(181, 107, 107), text_size=size.small, bgcolor=bg)
@@ -293,8 +223,6 @@ if showPanel and barstate.islast
 // === ALERTS ===
 alertcondition(buySig, "Buy Zone 40", "RSI entered zone 40 — BUY")
 alertcondition(sellSig, "Sell Zone 60", "RSI entered zone 60 — SELL")
-alertcondition(bullDiv, "Bullish Divergence", "Bullish divergence on RSI")
-alertcondition(bearDiv, "Bearish Divergence", "Bearish divergence on RSI")
 alertcondition(h4Doji and isNewH4, "H4 Doji", "H4 Doji formed")
 alertcondition(d1Doji and isNewD1, "Daily Doji", "Daily Doji formed")
 alertcondition(w1Doji and isNewW1, "Weekly Doji", "Weekly Doji formed")

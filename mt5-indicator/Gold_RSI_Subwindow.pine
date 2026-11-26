@@ -1,0 +1,73 @@
+//@version=5
+// Gold RSI Sub-window — RSI(14)+RSI(30) with divergences
+// Add this SECOND to the chart (after the Chart Overlay)
+indicator("Gold RSI Sub-window", shorttitle="RSI14+RSI30", overlay=false, max_lines_count=50, max_labels_count=50)
+
+// === INPUTS ===
+len14 = input.int(14, "RSI 14")
+len30 = input.int(30, "RSI 30")
+osLevel = input.float(40.0, "Oversold")
+obLevel = input.float(60.0, "Overbought")
+tol = input.float(1.0, "Tolerance")
+showDiv = input.bool(true, "Show Divergences")
+
+// === RSI ===
+rsi14 = ta.rsi(close, len14)
+rsi30 = ta.rsi(close, len30)
+
+plot(rsi14, "RSI(14)", color=color.rgb(135, 170, 200), linewidth=1)
+plot(rsi30, "RSI(30)", color=color.rgb(70, 90, 110), linewidth=2)
+hline(osLevel, "OS 40", color=color.gray, linestyle=hline.style_dashed)
+hline(obLevel, "OB 60", color=color.gray, linestyle=hline.style_dashed)
+hline(50, "Mid", color=color.new(color.gray, 70), linestyle=hline.style_dotted)
+
+// Zone highlight
+lo40 = osLevel - tol
+hi40 = osLevel + tol
+lo60 = obLevel - tol
+hi60 = obLevel + tol
+inZ40 = rsi30 >= lo40 and rsi30 <= hi40
+inZ60 = rsi30 >= lo60 and rsi30 <= hi60
+bgcolor(inZ40 ? color.new(color.green, 85) : na)
+bgcolor(inZ60 ? color.new(color.red, 85) : na)
+
+// === DIVERGENCE DETECTION ===
+// Pivot detection (5 bars left, 5 bars right)
+pl_rsi = ta.pivotlow(rsi30, 5, 5)
+ph_rsi = ta.pivothigh(rsi30, 5, 5)
+pl_price = ta.pivotlow(low, 5, 5)
+ph_price = ta.pivothigh(high, 5, 5)
+
+var float lastPL_price = na
+var float lastPL_rsi = na
+var float lastPH_price = na
+var float lastPH_rsi = na
+
+bullDiv = false
+bearDiv = false
+
+if not na(pl_price) and not na(pl_rsi)
+    if not na(lastPL_price) and not na(lastPL_rsi)
+        // Bullish divergence: price lower low, RSI higher low
+        if pl_price < lastPL_price and pl_rsi > lastPL_rsi
+            bullDiv := true
+            line.new(bar_index[10], lastPL_rsi, bar_index[5], pl_rsi, color=color.green, width=1)
+    lastPL_price := pl_price
+    lastPL_rsi := pl_rsi
+
+if not na(ph_price) and not na(ph_rsi)
+    if not na(lastPH_price) and not na(lastPH_rsi)
+        // Bearish divergence: price higher high, RSI lower high
+        if ph_price > lastPH_price and ph_rsi < lastPH_rsi
+            bearDiv := true
+            line.new(bar_index[10], lastPH_rsi, bar_index[5], ph_rsi, color=color.red, width=1)
+    lastPH_price := ph_price
+    lastPH_rsi := ph_rsi
+
+// Draw divergence arrows in RSI pane
+plotshape(showDiv and bullDiv, title="Bull Div", style=shape.arrowup, location=location.bottom, color=color.green, size=size.small, text="Div", textcolor=color.green)
+plotshape(showDiv and bearDiv, title="Bear Div", style=shape.arrowdown, location=location.top, color=color.red, size=size.small, text="Div", textcolor=color.red)
+
+// === ALERTS ===
+alertcondition(bullDiv, "Bullish Divergence", "Bullish divergence detected on RSI")
+alertcondition(bearDiv, "Bearish Divergence", "Bearish divergence detected on RSI")
