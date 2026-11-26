@@ -182,7 +182,7 @@ if showDayMark and isNewDay
     hi = ta.highest(high, 50)
     lo = ta.lowest(low, 50)
     line.new(bar_index, hi, bar_index, lo, color=color.new(color.gray, 60), style=line.style_dotted, width=1)
-    label.new(bar_index, hi, "Day " + str.dayofmonth(time), color=color.new(color.gray, 50), textcolor=color.gray, style=label.style_label_down, size=size.tiny)
+    label.new(bar_index, hi, "Day " + str.tostring(dayofmonth), color=color.new(color.gray, 50), textcolor=color.gray, style=label.style_label_down, size=size.tiny)
 
 // === SESSION MARKERS ON MAIN CHART ===
 // Sessions in UTC: Asia 00:00, Europe 07:00, US 13:00, US End 21:00
