@@ -74,7 +74,7 @@ isToday = ta.change(time("D")) == 0
 plot(showPrevHL and isToday ? pdh : na, "Prev High", color=color.new(color.green, 20), linewidth=1, style=plot.style_line)
 plot(showPrevHL and isToday ? pdl : na, "Prev Low", color=color.new(color.red, 20), linewidth=1, style=plot.style_line)
 
-if showPrevHL and ta.change(time("D")) != 0
+if showPrevHL and newDay
     label.new(bar_index, pdh, "PrevH " + str.tostring(pdh, "#.##"), color=color.green, textcolor=color.white, style=label.style_label_down, size=size.tiny)
     label.new(bar_index, pdl, "PrevL " + str.tostring(pdl, "#.##"), color=color.red, textcolor=color.white, style=label.style_label_up, size=size.tiny)
 
