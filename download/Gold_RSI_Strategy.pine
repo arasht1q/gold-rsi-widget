@@ -106,26 +106,27 @@ if showW1 and w1D and not na(w1DO)
         label.new(bar_index-50, zHi, "W "+str.tostring(w1DO,"#.##")+"/"+str.tostring(w1DC,"#.##"), color=color.rgb(235,155,70), textcolor=color.white, style=label.style_label_down, size=size.tiny)
 
 // === DAY MARKERS ===
+hi50 = ta.highest(high, 50)
+lo50 = ta.lowest(low, 50)
 newDay = ta.change(time("D")) != 0
 if showDayMark and newDay
-    hi = ta.highest(high, 50)
-    lo = ta.lowest(low, 50)
-    line.new(bar_index, hi, bar_index, lo, color=color.new(color.gray,70), style=line.style_dotted, width=1)
-    label.new(bar_index, hi, str.tostring(dayofmonth), color=color.new(color.gray,40), textcolor=color.gray, style=label.style_label_down, size=size.tiny)
+    line.new(bar_index, hi50, bar_index, lo50, color=color.new(color.gray,70), style=line.style_dotted, width=1)
+    label.new(bar_index, hi50, str.tostring(dayofmonth), color=color.new(color.gray,40), textcolor=color.gray, style=label.style_label_down, size=size.tiny)
 
 // === SESSION MARKERS ===
-cH = hour(time, "UTC")
-if showSess and ta.change(cH) != 0 and cH == 0
-    line.new(bar_index, ta.highest(high,50), bar_index, ta.lowest(low,50), color=color.new(color.teal,50), style=line.style_dashed, width=1)
-    label.new(bar_index, ta.highest(high,50), "Asia", color=color.teal, textcolor=color.white, style=label.style_label_down, size=size.tiny)
-if showSess and ta.change(cH) != 0 and cH == 7
-    line.new(bar_index, ta.highest(high,50), bar_index, ta.lowest(low,50), color=color.new(color.orange,50), style=line.style_dashed, width=1)
-    label.new(bar_index, ta.highest(high,50), "EU", color=color.orange, textcolor=color.white, style=label.style_label_down, size=size.tiny)
-if showSess and ta.change(cH) != 0 and cH == 13
-    line.new(bar_index, ta.highest(high,50), bar_index, ta.lowest(low,50), color=color.new(color.red,50), style=line.style_dashed, width=1)
-    label.new(bar_index, ta.highest(high,50), "US", color.red, textcolor=color.white, style=label.style_label_down, size=size.tiny)
-if showSess and ta.change(cH) != 0 and cH == 21
-    line.new(bar_index, ta.highest(high,50), bar_index, ta.lowest(low,50), color=color.new(color.gray,70), style=line.style_dotted, width=1)
+cH = hour(time)
+newH = ta.change(cH) != 0
+if showSess and newH and cH == 0
+    line.new(bar_index, hi50, bar_index, lo50, color=color.new(color.teal,50), style=line.style_dashed, width=1)
+    label.new(bar_index, hi50, "Asia", color=color.teal, textcolor=color.white, style=label.style_label_down, size=size.tiny)
+if showSess and newH and cH == 7
+    line.new(bar_index, hi50, bar_index, lo50, color=color.new(color.orange,50), style=line.style_dashed, width=1)
+    label.new(bar_index, hi50, "EU", color=color.orange, textcolor=color.white, style=label.style_label_down, size=size.tiny)
+if showSess and newH and cH == 13
+    line.new(bar_index, hi50, bar_index, lo50, color=color.new(color.red,50), style=line.style_dashed, width=1)
+    label.new(bar_index, hi50, "US", color.red, textcolor=color.white, style=label.style_label_down, size=size.tiny)
+if showSess and newH and cH == 21
+    line.new(bar_index, hi50, bar_index, lo50, color=color.new(color.gray,70), style=line.style_dotted, width=1)
 
 // === PANEL ===
 d40 = math.abs(rsi30 - osLevel)
