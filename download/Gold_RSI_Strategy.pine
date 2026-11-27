@@ -1,25 +1,20 @@
 //@version=5
-// Gold RSI Strategy — overlay=true (all on main chart)
-// Zones: H4 + Daily + Weekly + Monthly | Sessions bg | Prev day H/L | Signals
+// Gold RSI Strategy — overlay=true
+// First Touch signals + Divergence signals near zones
+// No zones, no prev day H/L, no Persian text
 
-indicator("Gold RSI Strategy", shorttitle="RSI Zones", overlay=true, max_boxes_count=200, max_labels_count=500, max_lines_count=500)
+indicator("Gold RSI Strategy", shorttitle="RSI Signals", overlay=true, max_labels_count=500, max_lines_count=200)
 
 // === INPUTS ===
 len30 = input.int(30, "RSI 30 Period")
 osLevel = input.float(40.0, "Oversold")
 obLevel = input.float(60.0, "Overbought")
 tol = input.float(1.0, "Tolerance")
-dojiThresh = input.float(0.12, "Doji Threshold (0.12=12%)")
-zFilter = input.float(30.0, "Zone Filter %")
-showH4 = input.bool(true, "H4 Zones (blue)")
-showD1 = input.bool(true, "Daily Zones (green)")
-showW1 = input.bool(true, "Weekly Zones (orange)")
-showMN = input.bool(true, "Monthly Zones (purple)")
-showSigs = input.bool(true, "Buy/Sell Signals")
+showSigs = input.bool(true, "Show Signals")
+showDiv = input.bool(true, "Show Divergences")
 showSess = input.bool(true, "Session Backgrounds")
 showDayMark = input.bool(true, "Day Markers")
-showPrevHL = input.bool(true, "Previous Day High/Low")
-pCorner = input.string("top_right", "Panel", options=["top_left","top_right","bottom_left","bottom_right"])
+pCorner = input.string("top_right", "Panel Position", options=["top_left","top_right","bottom_left","bottom_right"])
 
 // === RSI (internal) ===
 rsi30 = ta.rsi(close, len30)
@@ -43,6 +38,31 @@ else
     cz := 0
     curZone := 0
 
+// === TRACK FIRST TOUCH ===
+var bool touched40 = false
+var bool touched60 = false
+var int barsSinceT40 = 999
+var int barsSinceT60 = 999
+
+firstTouch40 = inZ40 and not inZ40[1]
+firstTouch60 = inZ60 and not inZ60[1]
+
+if firstTouch40
+    touched40 := true
+    barsSinceT40 := 0
+if firstTouch60
+    touched60 := true
+    barsSinceT60 := 0
+
+barsSinceT40 := barsSinceT40 + 1
+barsSinceT60 := barsSinceT60 + 1
+
+// Reset after RSI moves far from zone
+if rsi30 > 55
+    barsSinceT40 := 999
+if rsi30 < 45
+    barsSinceT60 := 999
+
 // === PATTERN DETECTION ===
 cBody = math.abs(close - open)
 cRng = high - low
@@ -53,117 +73,64 @@ isBullEng = close[1] < open[1] and close > open and math.max(open, close) >= mat
 isBearEng = close[1] > open[1] and close < open and math.max(open, close) >= math.max(open[1], close[1]) and math.min(open, close) <= math.min(open[1], close[1])
 hasPattern = isDoji or isBullPin or isBearPin or isBullEng or isBearEng
 
-// === SIGNALS (only when RSI in zone + pattern or 3+ candles in zone) ===
-buySig = inZ40 and not inZ40[1] and (hasPattern or cz >= 3)
-sellSig = inZ60 and not inZ60[1] and (hasPattern or cz >= 3)
+// === FIRST TOUCH SIGNALS ===
+buySig = firstTouch40 and (hasPattern or cz >= 2)
+sellSig = firstTouch60 and (hasPattern or cz >= 2)
 
-plotshape(showSigs and buySig, title="Buy", style=shape.triangleup, location=location.belowbar, color=color.green, size=size.small, text="BUY", textcolor=color.green)
-plotshape(showSigs and sellSig, title="Sell", style=shape.triangledown, location=location.abovebar, color=color.red, size=size.small, text="SELL", textcolor=color.red)
+plotshape(showSigs and buySig, title="Buy First Touch", style=shape.triangleup, location=location.belowbar, color=color.green, size=size.small, text="First Touch", textcolor=color.green)
+plotshape(showSigs and sellSig, title="Sell First Touch", style=shape.triangledown, location=location.abovebar, color=color.red, size=size.small, text="First Touch", textcolor=color.red)
+
+// === DIVERGENCE DETECTION (after touch, near zone) ===
+// Pivot detection
+plR = ta.pivotlow(rsi30, 5, 5)
+phR = ta.pivothigh(rsi30, 5, 5)
+plP = ta.pivotlow(low, 5, 5)
+phP = ta.pivothigh(high, 5, 5)
+
+var float lastPL_price = na
+var float lastPL_rsi = na
+var float lastPH_price = na
+var float lastPH_rsi = na
+
+bullDiv = false
+bearDiv = false
+
+// Bullish divergence: after touching zone 40, price lower low + RSI higher low
+if not na(plP) and not na(plR)
+    if not na(lastPL_price) and not na(lastPL_rsi)
+        if plP < lastPL_price and plR > lastPL_rsi
+            // Only if RSI was near zone 40 recently (within 30 bars)
+            if barsSinceT40 <= 30
+                bullDiv := true
+    lastPL_price := plP
+    lastPL_rsi := plR
+
+// Bearish divergence: after touching zone 60, price higher high + RSI lower high
+if not na(phP) and not na(phR)
+    if not na(lastPH_price) and not na(lastPH_rsi)
+        if phP > lastPH_price and phR < lastPH_rsi
+            // Only if RSI was near zone 60 recently (within 30 bars)
+            if barsSinceT60 <= 30
+                bearDiv := true
+    lastPH_price := phP
+    lastPH_rsi := phR
+
+plotshape(showDiv and bullDiv, title="Bull Divergence", style=shape.diamond, location=location.belowbar, color=color.blue, size=size.small, text="Divergence", textcolor=color.blue)
+plotshape(showDiv and bearDiv, title="Bear Divergence", style=shape.diamond, location=location.abovebar, color=color.orange, size=size.small, text="Divergence", textcolor=color.orange)
 
 // === SESSION BACKGROUNDS ===
 cH = hour(time)
-bgcolor(showSess and cH >= 0 and cH < 7 ? color.new(color.teal, 92) : na, title="Asia")
-bgcolor(showSess and cH >= 7 and cH < 13 ? color.new(color.orange, 92) : na, title="Europe")
-bgcolor(showSess and cH >= 13 and cH < 21 ? color.new(color.red, 92) : na, title="US")
+bgcolor(showSess and cH >= 0 and cH < 7 ? color.new(color.teal, 93) : na, title="Asia")
+bgcolor(showSess and cH >= 7 and cH < 13 ? color.new(color.orange, 93) : na, title="Europe")
+bgcolor(showSess and cH >= 13 and cH < 21 ? color.new(color.red, 93) : na, title="US")
 
-// === PRE-COMPUTED VALUES (must be before if blocks) ===
+// === DAY MARKERS ===
 hi50 = ta.highest(high, 50)
 lo50 = ta.lowest(low, 50)
 newDay = ta.change(time("D")) != 0
-isToday = not newDay
-
-// === PREVIOUS DAY HIGH/LOW ===
-pdh = request.security(syminfo.tickerid, "D", high[1])
-pdl = request.security(syminfo.tickerid, "D", low[1])
-
-plot(showPrevHL and isToday ? pdh : na, "Prev High", color=color.new(color.green, 20), linewidth=1, style=plot.style_line)
-plot(showPrevHL and isToday ? pdl : na, "Prev Low", color=color.new(color.red, 20), linewidth=1, style=plot.style_line)
-
-if showPrevHL and newDay
-    label.new(bar_index, pdh, "PrevH " + str.tostring(pdh, "#.##"), color=color.green, textcolor=color.white, style=label.style_label_down, size=size.tiny)
-    label.new(bar_index, pdl, "PrevL " + str.tostring(pdl, "#.##"), color=color.red, textcolor=color.white, style=label.style_label_up, size=size.tiny)
-
-// === DAY MARKERS ===
 if showDayMark and newDay
-    line.new(bar_index, hi50, bar_index, lo50, color=color.new(color.gray, 60), style=line.style_dotted, width=1)
+    line.new(bar_index, hi50, bar_index, lo50, color=color.new(color.gray, 70), style=line.style_dotted, width=1)
     label.new(bar_index, hi50, "Day " + str.tostring(dayofmonth), color=color.new(color.gray, 30), textcolor=color.gray, style=label.style_label_down, size=size.tiny)
-
-// === DOJI ZONES ===
-// H4 (blue)
-[h4o,h4c,h4h,h4l,h4t] = request.security(syminfo.tickerid, "240", [open,close,high,low,time])
-var float lH4 = na
-newH4 = na(lH4) or h4t != lH4
-lH4 := h4t
-var bool h4D = false
-var float h4DO = na
-var float h4DC = na
-if newH4 and not na(h4o[1])
-    h4D := (h4h[1]-h4l[1]) > 0 and math.abs(h4c[1]-h4o[1]) <= dojiThresh * (h4h[1]-h4l[1])
-    h4DO := h4o[1]
-    h4DC := h4c[1]
-if showH4 and h4D and not na(h4DO)
-    zLo = math.min(h4DO, h4DC)
-    zHi = math.max(h4DO, h4DC)
-    if math.abs((h4DO+h4DC)/2 - close) / close * 100 <= zFilter
-        box.new(bar_index-50, zHi, bar_index+100, zLo, border_color=color.rgb(100,150,220), border_width=1, bgcolor=color.rgb(100,150,220,80), extend=extend.right)
-        label.new(bar_index-50, zHi, "H4 Doji " + str.tostring(h4DO, "#.##") + "-" + str.tostring(h4DC, "#.##"), color=color.rgb(100,150,220), textcolor=color.white, style=label.style_label_down, size=size.tiny)
-
-// Daily (green)
-[d1o,d1c,d1h,d1l,d1t] = request.security(syminfo.tickerid, "D", [open,close,high,low,time])
-var float lD1 = na
-newD1 = na(lD1) or d1t != lD1
-lD1 := d1t
-var bool d1D = false
-var float d1DO = na
-var float d1DC = na
-if newD1 and not na(d1o[1])
-    d1D := (d1h[1]-d1l[1]) > 0 and math.abs(d1c[1]-d1o[1]) <= dojiThresh * (d1h[1]-d1l[1])
-    d1DO := d1o[1]
-    d1DC := d1c[1]
-if showD1 and d1D and not na(d1DO)
-    zLo = math.min(d1DO, d1DC)
-    zHi = math.max(d1DO, d1DC)
-    if math.abs((d1DO+d1DC)/2 - close) / close * 100 <= zFilter
-        box.new(bar_index-50, zHi, bar_index+100, zLo, border_color=color.rgb(100,170,100), border_width=1, bgcolor=color.rgb(100,170,100,80), extend=extend.right)
-        label.new(bar_index-50, zHi, "Daily Doji " + str.tostring(d1DO, "#.##") + "-" + str.tostring(d1DC, "#.##"), color=color.rgb(100,170,100), textcolor=color.white, style=label.style_label_down, size=size.tiny)
-
-// Weekly (orange)
-[w1o,w1c,w1h,w1l,w1t] = request.security(syminfo.tickerid, "W", [open,close,high,low,time])
-var float lW1 = na
-newW1 = na(lW1) or w1t != lW1
-lW1 := w1t
-var bool w1D = false
-var float w1DO = na
-var float w1DC = na
-if newW1 and not na(w1o[1])
-    w1D := (w1h[1]-w1l[1]) > 0 and math.abs(w1c[1]-w1o[1]) <= dojiThresh * (w1h[1]-w1l[1])
-    w1DO := w1o[1]
-    w1DC := w1c[1]
-if showW1 and w1D and not na(w1DO)
-    zLo = math.min(w1DO, w1DC)
-    zHi = math.max(w1DO, w1DC)
-    if math.abs((w1DO+w1DC)/2 - close) / close * 100 <= zFilter
-        box.new(bar_index-50, zHi, bar_index+100, zLo, border_color=color.rgb(235,155,70), border_width=1, bgcolor=color.rgb(235,155,70,80), extend=extend.right)
-        label.new(bar_index-50, zHi, "Weekly Doji " + str.tostring(w1DO, "#.##") + "-" + str.tostring(w1DC, "#.##"), color=color.rgb(235,155,70), textcolor=color.white, style=label.style_label_down, size=size.tiny)
-
-// Monthly (purple)
-[mno,mnc,mnh,mnl,mnt] = request.security(syminfo.tickerid, "M", [open,close,high,low,time])
-var float lMN = na
-newMN = na(lMN) or mnt != lMN
-lMN := mnt
-var bool mnD = false
-var float mnDO = na
-var float mnDC = na
-if newMN and not na(mno[1])
-    mnD := (mnh[1]-mnl[1]) > 0 and math.abs(mnc[1]-mno[1]) <= dojiThresh * (mnh[1]-mnl[1])
-    mnDO := mno[1]
-    mnDC := mnc[1]
-if showMN and mnD and not na(mnDO)
-    zLo = math.min(mnDO, mnDC)
-    zHi = math.max(mnDO, mnDC)
-    if math.abs((mnDO+mnDC)/2 - close) / close * 100 <= zFilter
-        box.new(bar_index-50, zHi, bar_index+100, zLo, border_color=color.rgb(180,100,200), border_width=1, bgcolor=color.rgb(180,100,200,80), extend=extend.right)
-        label.new(bar_index-50, zHi, "Monthly Doji " + str.tostring(mnDO, "#.##") + "-" + str.tostring(mnDC, "#.##"), color=color.rgb(180,100,200), textcolor=color.white, style=label.style_label_down, size=size.tiny)
 
 // === PANEL ===
 d40 = math.abs(rsi30 - osLevel)
@@ -236,9 +203,7 @@ if barstate.islast
         table.cell(pnl,1,13,"1:"+str.tostring(rrR,"#.##"),text_color=color.rgb(192,138,90),text_size=size.small,bgcolor=bg)
 
 // === ALERTS ===
-alertcondition(buySig, "Buy Signal", "RSI in zone 40 + pattern — BUY")
-alertcondition(sellSig, "Sell Signal", "RSI in zone 60 + pattern — SELL")
-alertcondition(h4D and newH4, "H4 Doji", "H4 Doji zone formed")
-alertcondition(d1D and newD1, "Daily Doji", "Daily Doji zone formed")
-alertcondition(w1D and newW1, "Weekly Doji", "Weekly Doji zone formed")
-alertcondition(mnD and newMN, "Monthly Doji", "Monthly Doji zone formed")
+alertcondition(buySig, "Buy First Touch", "RSI entered zone 40 — First Touch BUY")
+alertcondition(sellSig, "Sell First Touch", "RSI entered zone 60 — First Touch SELL")
+alertcondition(bullDiv, "Bull Divergence", "Bullish divergence near zone 40")
+alertcondition(bearDiv, "Bear Divergence", "Bearish divergence near zone 60")
