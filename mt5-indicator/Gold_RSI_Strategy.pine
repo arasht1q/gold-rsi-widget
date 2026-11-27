@@ -164,6 +164,8 @@ bullDiv = false
 bearDiv = false
 bullDivWeak = false
 bearDivWeak = false
+bullDivStrong = false
+bearDivStrong = false
 divEnded = false
 divEndType = "None"
 
@@ -176,8 +178,12 @@ if not na(rsi_b3) and hi_b2 > hi_b1 and hi_b2 > hi_b3
     last_phR := rsi_b2
     last_phI := idx_b2
     if not na(prev_phP) and last_phP > prev_phP and last_phR < prev_phR
+        // Strong divergence: price 1%+ higher AND RSI 3+ lower
+        isStrongBear = not na(prev_phP) and (last_phP > prev_phP * 1.01) and (last_phR < prev_phR - 3)
         if barsSinceT60 <= divRange and rsi30 > 50
             bearDiv := true
+            if isStrongBear
+                bearDivStrong := true
         else
             bearDivWeak := true
         bearDivAge := 0
@@ -191,8 +197,12 @@ if not na(rsi_b3) and lo_b2 < lo_b1 and lo_b2 < lo_b3
     last_plR := rsi_b2
     last_plI := idx_b2
     if not na(prev_plP) and last_plP < prev_plP and last_plR > prev_plR
+        // Strong divergence: price 1%+ lower AND RSI 3+ higher
+        isStrongBull = not na(prev_plP) and (last_plP < prev_plP * 0.99) and (last_plR > prev_plR + 3)
         if barsSinceT40 <= divRange and rsi30 < 50
             bullDiv := true
+            if isStrongBull
+                bullDivStrong := true
         else
             bullDivWeak := true
         bullDivAge := 0
@@ -232,23 +242,42 @@ if activeDivDir == -1 and rsi30 <= osLevel
 oppBull = oppMin == 2 ? (close > open and close[1] > open[1]) : (close > open and close[1] > open[1] and close[2] > open[2])
 oppBear = oppMin == 2 ? (close < open and close[1] < open[1]) : (close < open and close[1] < open[1] and close[2] < open[2])
 
-buyDiv = bullDivRecent and oppBull and lastDivSigDir != 1
-sellDiv = bearDivRecent and oppBear and lastDivSigDir != -1
+// FILTER: only allow same-direction div if opposite fired OR divergence is very strong
+allowBullDiv = lastDivSigDir != 1 or bullDivStrong
+allowBearDiv = lastDivSigDir != -1 or bearDivStrong
+
+// Filter the div labels too (not just BUY DIV/SELL DIV)
+bullDivShow = bullDiv and allowBullDiv
+bearDivShow = bearDiv and allowBearDiv
+bullDivWeakShow = bullDivWeak and allowBullDiv
+bearDivWeakShow = bearDivWeak and allowBearDiv
+
+buyDiv = bullDivRecent and oppBull and allowBullDiv
+sellDiv = bearDivRecent and oppBear and allowBearDiv
 if buyDiv
     lastDivSigDir := 1
 if sellDiv
     lastDivSigDir := -1
+// Also update lastDivSigDir when div label fires (not just BUY DIV)
+if bullDivShow and not buyDiv
+    lastDivSigDir := 1
+if bearDivShow and not sellDiv
+    lastDivSigDir := -1
 
 divStateLbl = activeDivDir == 1 ? "BULL ACTIVE" : activeDivDir == -1 ? "BEAR ACTIVE" : "None"
 
-if showDiv and bullDiv
+if showDiv and bullDivShow
     sigCount := sigCount + 1
-    label.new(bar_index, low - atrVal * 0.5 * sigCount, "Bull Div", style=label.style_label_up, color=color.blue, textcolor=color.white, size=size.tiny)
-    line.new(prev_plI, prev_plR, last_plI, last_plR, color=color.new(color.blue, 30), width=1)
-if showDiv and bearDiv
+    divLbl = bullDivStrong ? "Strong Bull Div" : "Bull Div"
+    divCol = bullDivStrong ? color.rgb(0, 100, 200) : color.blue
+    label.new(bar_index, low - atrVal * 0.5 * sigCount, divLbl, style=label.style_label_up, color=divCol, textcolor=color.white, size=size.tiny)
+    line.new(prev_plI, prev_plR, last_plI, last_plR, color=color.new(divCol, 30), width=1)
+if showDiv and bearDivShow
     sigCount := sigCount + 1
-    label.new(bar_index, high + atrVal * 0.5 * sigCount, "Bear Div", style=label.style_label_down, color=color.orange, textcolor=color.white, size=size.tiny)
-    line.new(prev_phI, prev_phR, last_phI, last_phR, color=color.new(color.orange, 30), width=1)
+    divLbl = bearDivStrong ? "Strong Bear Div" : "Bear Div"
+    divCol = bearDivStrong ? color.rgb(200, 80, 0) : color.orange
+    label.new(bar_index, high + atrVal * 0.5 * sigCount, divLbl, style=label.style_label_down, color=divCol, textcolor=color.white, size=size.tiny)
+    line.new(prev_phI, prev_phR, last_phI, last_phR, color=color.new(divCol, 30), width=1)
 
 if showDiv and buyDiv
     sigCount := sigCount + 1
@@ -257,10 +286,10 @@ if showDiv and sellDiv
     sigCount := sigCount + 1
     label.new(bar_index, high + atrVal * 0.5 * sigCount, "SELL DIV", style=label.style_label_down, color=color.orange, textcolor=color.white, size=size.tiny)
 
-if showWeak and bullDivWeak
+if showWeak and bullDivWeakShow
     sigCount := sigCount + 1
     label.new(bar_index, low - atrVal * 0.5 * sigCount, "Weak Div", style=label.style_label_up, color=color.new(color.blue, 40), textcolor=color.white, size=size.tiny)
-if showWeak and bearDivWeak
+if showWeak and bearDivWeakShow
     sigCount := sigCount + 1
     label.new(bar_index, high + atrVal * 0.5 * sigCount, "Weak Div", style=label.style_label_down, color=color.new(color.orange, 40), textcolor=color.white, size=size.tiny)
 
