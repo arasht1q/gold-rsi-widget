@@ -1,7 +1,7 @@
 //@version=5
 // Gold RSI Strategy — overlay=true
-// First Touch signals + Divergence signals near zones
-// No zones, no prev day H/L, no Persian text
+// Signals: First Touch + Zone Exit + Divergence (extended range)
+// All English, no zones, no prev day H/L
 
 indicator("Gold RSI Strategy", shorttitle="RSI Signals", overlay=true, max_labels_count=500, max_lines_count=200)
 
@@ -10,10 +10,12 @@ len30 = input.int(30, "RSI 30 Period")
 osLevel = input.float(40.0, "Oversold")
 obLevel = input.float(60.0, "Overbought")
 tol = input.float(1.0, "Tolerance")
-showSigs = input.bool(true, "Show Signals")
-showDiv = input.bool(true, "Show Divergences")
+showSigs = input.bool(true, "First Touch Signals")
+showExit = input.bool(true, "Zone Exit Signals")
+showDiv = input.bool(true, "Divergence Signals")
 showSess = input.bool(true, "Session Backgrounds")
 showDayMark = input.bool(true, "Day Markers")
+divRange = input.int(50, "Divergence Range (bars after touch)")
 pCorner = input.string("top_right", "Panel Position", options=["top_left","top_right","bottom_left","bottom_right"])
 
 // === RSI (internal) ===
@@ -38,7 +40,7 @@ else
     cz := 0
     curZone := 0
 
-// === TRACK FIRST TOUCH ===
+// === TRACK ZONE TOUCHES ===
 var bool touched40 = false
 var bool touched60 = false
 var int barsSinceT40 = 999
@@ -57,7 +59,7 @@ if firstTouch60
 barsSinceT40 := barsSinceT40 + 1
 barsSinceT60 := barsSinceT60 + 1
 
-// Reset after RSI moves far from zone
+// Reset when RSI moves far from zone
 if rsi30 > 55
     barsSinceT40 := 999
 if rsi30 < 45
@@ -73,14 +75,23 @@ isBullEng = close[1] < open[1] and close > open and math.max(open, close) >= mat
 isBearEng = close[1] > open[1] and close < open and math.max(open, close) >= math.max(open[1], close[1]) and math.min(open, close) <= math.min(open[1], close[1])
 hasPattern = isDoji or isBullPin or isBearPin or isBullEng or isBearEng
 
-// === FIRST TOUCH SIGNALS ===
+// === SIGNAL 1: FIRST TOUCH ===
 buySig = firstTouch40 and (hasPattern or cz >= 2)
 sellSig = firstTouch60 and (hasPattern or cz >= 2)
 
 plotshape(showSigs and buySig, title="Buy First Touch", style=shape.triangleup, location=location.belowbar, color=color.green, size=size.small, text="First Touch", textcolor=color.green)
 plotshape(showSigs and sellSig, title="Sell First Touch", style=shape.triangledown, location=location.abovebar, color=color.red, size=size.small, text="First Touch", textcolor=color.red)
 
-// === DIVERGENCE DETECTION (after touch, near zone) ===
+// === SIGNAL 2: ZONE EXIT ===
+// RSI exits zone 40 going up (bullish — RSI recovering from oversold)
+exit40Up = not inZ40 and inZ40[1] and rsi30 > hi40
+// RSI exits zone 60 going down (bearish — RSI dropping from overbought)
+exit60Down = not inZ60 and inZ60[1] and rsi30 < lo60
+
+plotshape(showExit and exit40Up, title="Zone Exit Buy", style=shape.circle, location=location.belowbar, color=color.rgb(0, 180, 0), size=size.tiny, text="Exit", textcolor=color.rgb(0, 180, 0))
+plotshape(showExit and exit60Down, title="Zone Exit Sell", style=shape.circle, location=location.abovebar, color=color.rgb(220, 0, 0), size=size.tiny, text="Exit", textcolor=color.rgb(220, 0, 0))
+
+// === SIGNAL 3: DIVERGENCE (extended range) ===
 // Pivot detection
 plR = ta.pivotlow(rsi30, 5, 5)
 phR = ta.pivothigh(rsi30, 5, 5)
@@ -95,22 +106,24 @@ var float lastPH_rsi = na
 bullDiv = false
 bearDiv = false
 
-// Bullish divergence: after touching zone 40, price lower low + RSI higher low
+// Bullish divergence: price lower low + RSI higher low
+// Detect within divRange bars after touching zone 40
+// Also detect when RSI is slightly past zone (below 45)
 if not na(plP) and not na(plR)
     if not na(lastPL_price) and not na(lastPL_rsi)
         if plP < lastPL_price and plR > lastPL_rsi
-            // Only if RSI was near zone 40 recently (within 30 bars)
-            if barsSinceT40 <= 30
+            if barsSinceT40 <= divRange and rsi30 < 50
                 bullDiv := true
     lastPL_price := plP
     lastPL_rsi := plR
 
-// Bearish divergence: after touching zone 60, price higher high + RSI lower high
+// Bearish divergence: price higher high + RSI lower high
+// Detect within divRange bars after touching zone 60
+// Also detect when RSI is slightly past zone (above 55)
 if not na(phP) and not na(phR)
     if not na(lastPH_price) and not na(lastPH_rsi)
         if phP > lastPH_price and phR < lastPH_rsi
-            // Only if RSI was near zone 60 recently (within 30 bars)
-            if barsSinceT60 <= 30
+            if barsSinceT60 <= divRange and rsi30 > 50
                 bearDiv := true
     lastPH_price := phP
     lastPH_rsi := phR
@@ -205,5 +218,7 @@ if barstate.islast
 // === ALERTS ===
 alertcondition(buySig, "Buy First Touch", "RSI entered zone 40 — First Touch BUY")
 alertcondition(sellSig, "Sell First Touch", "RSI entered zone 60 — First Touch SELL")
+alertcondition(exit40Up, "Zone Exit Buy", "RSI exited zone 40 upward — BUY")
+alertcondition(exit60Down, "Zone Exit Sell", "RSI exited zone 60 downward — SELL")
 alertcondition(bullDiv, "Bull Divergence", "Bullish divergence near zone 40")
 alertcondition(bearDiv, "Bear Divergence", "Bearish divergence near zone 60")
