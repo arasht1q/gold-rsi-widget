@@ -1,7 +1,8 @@
 //@version=5
 // Gold RSI Strategy — overlay=true
-// Signals: First Touch + Zone Exit + Divergence (extended range)
-// All English, no zones, no prev day H/L
+// Signals: First Touch + Turn + Divergence + Strong Reversal + Momentum
+// Based on 2-year statistical backtest findings
+// All English, no zones, label overlap prevention
 
 indicator("Gold RSI Strategy", shorttitle="RSI Signals", overlay=true, max_labels_count=500, max_lines_count=200)
 
@@ -10,15 +11,17 @@ len30 = input.int(30, "RSI 30 Period")
 osLevel = input.float(40.0, "Oversold")
 obLevel = input.float(60.0, "Overbought")
 tol = input.float(1.0, "Tolerance")
-showSigs = input.bool(true, "First Touch Signals")
-showExit = input.bool(true, "Zone Exit Signals")
-showDiv = input.bool(true, "Divergence Signals")
+showSigs = input.bool(true, "First Touch")
+showTurn = input.bool(true, "Turn (Zone Exit)")
+showDiv = input.bool(true, "Divergence")
+showStrong = input.bool(true, "Strong Reversal (5+ bars in zone)")
+showMom = input.bool(true, "Momentum Warning (vol ratio > 1.3)")
 showSess = input.bool(true, "Session Backgrounds")
 showDayMark = input.bool(true, "Day Markers")
-divRange = input.int(50, "Divergence Range (bars after touch)")
-pCorner = input.string("top_right", "Panel Position", options=["top_left","top_right","bottom_left","bottom_right"])
+divRange = input.int(50, "Divergence Range")
+pCorner = input.string("top_right", "Panel", options=["top_left","top_right","bottom_left","bottom_right"])
 
-// === RSI (internal) ===
+// === RSI ===
 rsi30 = ta.rsi(close, len30)
 rsi14 = ta.rsi(close, 14)
 lo40 = osLevel - tol
@@ -40,26 +43,22 @@ else
     cz := 0
     curZone := 0
 
+// === VOLUME RATIO (from backtest: vol 5/20 ratio) ===
+vol5 = ta.sma(volume, 5)
+vol20 = ta.sma(volume, 20)
+volRatio = vol20 > 0 ? vol5 / vol20 : 1.0
+
 // === TRACK ZONE TOUCHES ===
-var bool touched40 = false
-var bool touched60 = false
 var int barsSinceT40 = 999
 var int barsSinceT60 = 999
-
 firstTouch40 = inZ40 and not inZ40[1]
 firstTouch60 = inZ60 and not inZ60[1]
-
 if firstTouch40
-    touched40 := true
     barsSinceT40 := 0
 if firstTouch60
-    touched60 := true
     barsSinceT60 := 0
-
 barsSinceT40 := barsSinceT40 + 1
 barsSinceT60 := barsSinceT60 + 1
-
-// Reset when RSI moves far from zone
 if rsi30 > 55
     barsSinceT40 := 999
 if rsi30 < 45
@@ -75,24 +74,37 @@ isBullEng = close[1] < open[1] and close > open and math.max(open, close) >= mat
 isBearEng = close[1] > open[1] and close < open and math.max(open, close) >= math.max(open[1], close[1]) and math.min(open, close) <= math.min(open[1], close[1])
 hasPattern = isDoji or isBullPin or isBearPin or isBullEng or isBearEng
 
+// === ATR for label positioning (overlap prevention) ===
+atrV = ta.atr(14)
+
+// === OVERLAP TRACKING ===
+// Count signals per bar to offset labels vertically
+var int sigCountThisBar = 0
+sigCountThisBar := 0
+
 // === SIGNAL 1: FIRST TOUCH ===
 buySig = firstTouch40 and (hasPattern or cz >= 2)
 sellSig = firstTouch60 and (hasPattern or cz >= 2)
 
-plotshape(showSigs and buySig, title="Buy First Touch", style=shape.triangleup, location=location.belowbar, color=color.green, size=size.small, text="First Touch", textcolor=color.green)
-plotshape(showSigs and sellSig, title="Sell First Touch", style=shape.triangledown, location=location.abovebar, color=color.red, size=size.small, text="First Touch", textcolor=color.red)
+if showSigs and buySig
+    sigCountThisBar := sigCountThisBar + 1
+    label.new(bar_index, low - atrV * 0.5 * sigCountThisBar, "First Touch", style=label.style_label_up, color=color.green, textcolor=color.white, size=size.tiny)
+if showSigs and sellSig
+    sigCountThisBar := sigCountThisBar + 1
+    label.new(bar_index, high + atrV * 0.5 * sigCountThisBar, "First Touch", style=label.style_label_down, color=color.red, textcolor=color.white, size=size.tiny)
 
-// === SIGNAL 2: ZONE EXIT ===
-// RSI exits zone 40 going up (bullish — RSI recovering from oversold)
-exit40Up = not inZ40 and inZ40[1] and rsi30 > hi40
-// RSI exits zone 60 going down (bearish — RSI dropping from overbought)
-exit60Down = not inZ60 and inZ60[1] and rsi30 < lo60
+// === SIGNAL 2: TURN (was "Exit") ===
+turn40Up = not inZ40 and inZ40[1] and rsi30 > hi40
+turn60Down = not inZ60 and inZ60[1] and rsi30 < lo60
 
-plotshape(showExit and exit40Up, title="Zone Exit Buy", style=shape.circle, location=location.belowbar, color=color.rgb(0, 180, 0), size=size.tiny, text="Exit", textcolor=color.rgb(0, 180, 0))
-plotshape(showExit and exit60Down, title="Zone Exit Sell", style=shape.circle, location=location.abovebar, color=color.rgb(220, 0, 0), size=size.tiny, text="Exit", textcolor=color.rgb(220, 0, 0))
+if showTurn and turn40Up
+    sigCountThisBar := sigCountThisBar + 1
+    label.new(bar_index, low - atrV * 0.5 * sigCountThisBar, "Turn", style=label.style_label_up, color=color.rgb(0, 160, 0), textcolor=color.white, size=size.tiny)
+if showTurn and turn60Down
+    sigCountThisBar := sigCountThisBar + 1
+    label.new(bar_index, high + atrV * 0.5 * sigCountThisBar, "Turn", style=label.style_label_down, color=color.rgb(200, 0, 0), textcolor=color.white, size=size.tiny)
 
-// === SIGNAL 3: DIVERGENCE (extended range) ===
-// Pivot detection
+// === SIGNAL 3: DIVERGENCE ===
 plR = ta.pivotlow(rsi30, 5, 5)
 phR = ta.pivothigh(rsi30, 5, 5)
 plP = ta.pivotlow(low, 5, 5)
@@ -106,9 +118,6 @@ var float lastPH_rsi = na
 bullDiv = false
 bearDiv = false
 
-// Bullish divergence: price lower low + RSI higher low
-// Detect within divRange bars after touching zone 40
-// Also detect when RSI is slightly past zone (below 45)
 if not na(plP) and not na(plR)
     if not na(lastPL_price) and not na(lastPL_rsi)
         if plP < lastPL_price and plR > lastPL_rsi
@@ -117,9 +126,6 @@ if not na(plP) and not na(plR)
     lastPL_price := plP
     lastPL_rsi := plR
 
-// Bearish divergence: price higher high + RSI lower high
-// Detect within divRange bars after touching zone 60
-// Also detect when RSI is slightly past zone (above 55)
 if not na(phP) and not na(phR)
     if not na(lastPH_price) and not na(lastPH_rsi)
         if phP > lastPH_price and phR < lastPH_rsi
@@ -128,8 +134,33 @@ if not na(phP) and not na(phR)
     lastPH_price := phP
     lastPH_rsi := phR
 
-plotshape(showDiv and bullDiv, title="Bull Divergence", style=shape.diamond, location=location.belowbar, color=color.blue, size=size.small, text="Divergence", textcolor=color.blue)
-plotshape(showDiv and bearDiv, title="Bear Divergence", style=shape.diamond, location=location.abovebar, color=color.orange, size=size.small, text="Divergence", textcolor=color.orange)
+if showDiv and bullDiv
+    sigCountThisBar := sigCountThisBar + 1
+    label.new(bar_index, low - atrV * 0.5 * sigCountThisBar, "Divergence", style=label.style_label_up, color=color.blue, textcolor=color.white, size=size.tiny)
+if showDiv and bearDiv
+    sigCountThisBar := sigCountThisBar + 1
+    label.new(bar_index, high + atrV * 0.5 * sigCountThisBar, "Divergence", style=label.style_label_down, color=color.orange, textcolor=color.white, size=size.tiny)
+
+// === SIGNAL 4: STRONG REVERSAL (from backtest: 5+ bars in zone → 50%+ reversal) ===
+strongRev40 = inZ40 and cz == 5
+strongRev60 = inZ60 and cz == 5
+
+if showStrong and strongRev40
+    sigCountThisBar := sigCountThisBar + 1
+    label.new(bar_index, low - atrV * 0.5 * sigCountThisBar, "Strong Rev", style=label.style_label_up, color=color.rgb(0, 200, 100), textcolor=color.white, size=size.tiny)
+if showStrong and strongRev60
+    sigCountThisBar := sigCountThisBar + 1
+    label.new(bar_index, high + atrV * 0.5 * sigCountThisBar, "Strong Rev", style=label.style_label_down, color=color.rgb(220, 50, 50), textcolor=color.white, size=size.tiny)
+
+// === SIGNAL 5: MOMENTUM WARNING (from backtest: vol ratio > 1.3 → momentum strong) ===
+momWarning = volRatio > 1.3 and (inZ40 or inZ60) and cz == 1
+
+if showMom and momWarning and curZone == 40
+    sigCountThisBar := sigCountThisBar + 1
+    label.new(bar_index, high + atrV * 0.5 * sigCountThisBar, "Momentum", style=label.style_label_down, color=color.purple, textcolor=color.white, size=size.tiny)
+if showMom and momWarning and curZone == 60
+    sigCountThisBar := sigCountThisBar + 1
+    label.new(bar_index, low - atrV * 0.5 * sigCountThisBar, "Momentum", style=label.style_label_up, color=color.purple, textcolor=color.white, size=size.tiny)
 
 // === SESSION BACKGROUNDS ===
 cH = hour(time)
@@ -178,7 +209,7 @@ rrR = curZone > 0 and not na(slP) ? math.abs(tpP-close)/math.abs(close-slP) : na
 dirT = curZone == 60 ? "SELL" : curZone == 40 ? "BUY" : "-"
 
 tP = pCorner == "top_left" ? position.top_left : pCorner == "top_right" ? position.top_right : pCorner == "bottom_left" ? position.bottom_left : position.bottom_right
-var table pnl = table.new(tP, 2, 14, border_width=1, border_color=color.rgb(180,175,170))
+var table pnl = table.new(tP, 2, 16, border_width=1, border_color=color.rgb(180,175,170))
 if barstate.islast
     bg = color.rgb(250,249,246)
     lc = color.rgb(120,115,110)
@@ -205,20 +236,27 @@ if barstate.islast
     table.cell(pnl,1,8,str.tostring(pP*100,"#")+"%",text_color=color.rgb(181,107,107),text_size=size.small,bgcolor=bg)
     table.cell(pnl,0,9,"Pattern",text_color=lc,text_size=size.small,bgcolor=bg)
     table.cell(pnl,1,9,patN,text_color=patN != "None" ? color.rgb(192,138,90) : color.rgb(150,145,140),text_size=size.small,bgcolor=bg)
+    table.cell(pnl,0,10,"Vol Ratio",text_color=lc,text_size=size.small,bgcolor=bg)
+    table.cell(pnl,1,10,str.tostring(volRatio,"#.##"),text_color=volRatio > 1.3 ? color.rgb(181,107,107) : color.rgb(150,145,140),text_size=size.small,bgcolor=bg)
     if curZone > 0
-        table.cell(pnl,0,10,"Direction",text_color=lc,text_size=size.small,bgcolor=bg)
-        table.cell(pnl,1,10,dirT,text_color=dirT == "BUY" ? color.rgb(91,140,90) : color.rgb(181,107,107),text_size=size.small,bgcolor=bg)
-        table.cell(pnl,0,11,"Entry",text_color=lc,text_size=size.small,bgcolor=bg)
-        table.cell(pnl,1,11,str.tostring(close,"#.##"),text_color=vc,text_size=size.small,bgcolor=bg)
-        table.cell(pnl,0,12,"SL/TP",text_color=lc,text_size=size.small,bgcolor=bg)
-        table.cell(pnl,1,12,str.tostring(slP,"#.##")+"/"+str.tostring(tpP,"#.##"),text_color=vc,text_size=size.small,bgcolor=bg)
-        table.cell(pnl,0,13,"R:R",text_color=lc,text_size=size.small,bgcolor=bg)
-        table.cell(pnl,1,13,"1:"+str.tostring(rrR,"#.##"),text_color=color.rgb(192,138,90),text_size=size.small,bgcolor=bg)
+        table.cell(pnl,0,11,"Direction",text_color=lc,text_size=size.small,bgcolor=bg)
+        table.cell(pnl,1,11,dirT,text_color=dirT == "BUY" ? color.rgb(91,140,90) : color.rgb(181,107,107),text_size=size.small,bgcolor=bg)
+        table.cell(pnl,0,12,"Entry",text_color=lc,text_size=size.small,bgcolor=bg)
+        table.cell(pnl,1,12,str.tostring(close,"#.##"),text_color=vc,text_size=size.small,bgcolor=bg)
+        table.cell(pnl,0,13,"SL/TP",text_color=lc,text_size=size.small,bgcolor=bg)
+        table.cell(pnl,1,13,str.tostring(slP,"#.##")+"/"+str.tostring(tpP,"#.##"),text_color=vc,text_size=size.small,bgcolor=bg)
+        table.cell(pnl,0,14,"R:R",text_color=lc,text_size=size.small,bgcolor=bg)
+        table.cell(pnl,1,14,"1:"+str.tostring(rrR,"#.##"),text_color=color.rgb(192,138,90),text_size=size.small,bgcolor=bg)
+        table.cell(pnl,0,15,"Bars in Zone",text_color=lc,text_size=size.small,bgcolor=bg)
+        table.cell(pnl,1,15,str.tostring(cz),text_color=cz >= 5 ? color.rgb(91,140,90) : color.rgb(150,145,140),text_size=size.small,bgcolor=bg)
 
 // === ALERTS ===
-alertcondition(buySig, "Buy First Touch", "RSI entered zone 40 — First Touch BUY")
-alertcondition(sellSig, "Sell First Touch", "RSI entered zone 60 — First Touch SELL")
-alertcondition(exit40Up, "Zone Exit Buy", "RSI exited zone 40 upward — BUY")
-alertcondition(exit60Down, "Zone Exit Sell", "RSI exited zone 60 downward — SELL")
+alertcondition(buySig, "Buy First Touch", "RSI zone 40 — First Touch BUY")
+alertcondition(sellSig, "Sell First Touch", "RSI zone 60 — First Touch SELL")
+alertcondition(turn40Up, "Turn Buy", "RSI turned up from zone 40")
+alertcondition(turn60Down, "Turn Sell", "RSI turned down from zone 60")
 alertcondition(bullDiv, "Bull Divergence", "Bullish divergence near zone 40")
 alertcondition(bearDiv, "Bear Divergence", "Bearish divergence near zone 60")
+alertcondition(strongRev40, "Strong Reversal Buy", "5+ bars in zone 40 — strong reversal signal")
+alertcondition(strongRev60, "Strong Reversal Sell", "5+ bars in zone 60 — strong reversal signal")
+alertcondition(momWarning, "Momentum Warning", "High volume momentum — be careful with reversal")
